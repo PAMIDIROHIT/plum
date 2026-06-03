@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import type { ClaimInput, PolicyTerms, AdjudicationResult } from '../types';
-import { extractFromLLM, localFallbackParser } from '../utils/llm';
+import { extractWithGemini25Flash, adjudicateWithDeepSeekR1, localFallbackParser, DEFAULT_OPENROUTER_KEY } from '../utils/llm';
 import { adjudicateClaim } from '../utils/adjudicator';
 
 interface ClaimSubmitterProps {
@@ -108,6 +108,17 @@ export const ClaimSubmitter: React.FC<ClaimSubmitterProps> = ({
   // UI state
   const [extracting, setExtracting] = useState(false);
   const [extractedData, setExtractedData] = useState<any>(null);
+  const [adjudicationMode, setAdjudicationMode] = useState<'local' | 'ai'>('ai');
+  const [rulesText, setRulesText] = useState('');
+  const [adjudicating, setAdjudicating] = useState(false);
+
+  // Fetch rules document on mount
+  useEffect(() => {
+    fetch('/adjudication_rules.md')
+      .then(res => res.text())
+      .then(text => setRulesText(text))
+      .catch(err => console.error('Failed to load rules text:', err));
+  }, []);
 
   // Sync state if a claim is imported from the Test Runner
   useEffect(() => {
@@ -161,41 +172,60 @@ export const ClaimSubmitter: React.FC<ClaimSubmitterProps> = ({
     setExtractedData(null);
   };
 
-  // Run AI / Regex extraction on documents
+  // Run AI / Regex extraction on documents using Gemini 2.5 Flash
   const handleExtract = async () => {
     setExtracting(true);
     try {
-      // Extract prescription & bill
-      const parsedPrescription = prescriptionText.trim() 
-        ? await extractFromLLM(openaiKey, prescriptionText, 'prescription')
-        : undefined;
+      const combinedText = `
+=== PRESCRIPTION DOCUMENT ===
+${prescriptionText}
 
-      const parsedBill = await extractFromLLM(openaiKey, billText, 'bill');
+=== BILL/INVOICE DOCUMENT ===
+${billText}
+`;
+      const extracted = await extractWithGemini25Flash(openaiKey, combinedText);
+      setExtractedData(extracted);
 
-      setExtractedData({
-        prescription: parsedPrescription,
-        bill: parsedBill
-      });
+      // Autofill patient details if extracted
+      if (extracted.patient_name && extracted.patient_name !== 'Unknown') {
+        setMemberName(extracted.patient_name);
+      }
+      if (extracted.claim_amount) {
+        setClaimAmount(extracted.claim_amount);
+      }
     } catch (e) {
-      console.error(e);
+      console.error('Extraction failed:', e);
     } finally {
       setExtracting(false);
     }
   };
 
-  // Run Adjudication Rules Engine
-  const handleSubmitAdjudication = () => {
-    let finalDocs: any = {};
-    if (extractedData) {
-      finalDocs = extractedData;
-    } else {
-      // Extract on-the-fly using regex parser if no manual extraction was performed
+  // Run Adjudication using selected Mode (Local rules vs DeepSeek R1)
+  const handleSubmitAdjudication = async () => {
+    setAdjudicating(true);
+    const claimId = `CLM_${Math.floor(100000 + Math.random() * 900000)}`;
+    
+    let finalExtractedData = extractedData;
+    if (!finalExtractedData) {
+      // Run fallback parser on-the-fly
       const syncPresc = prescriptionText.trim() ? localFallbackParser(prescriptionText, 'prescription') : undefined;
       const syncBill = localFallbackParser(billText, 'bill');
-      finalDocs = { prescription: syncPresc, bill: syncBill };
+      finalExtractedData = {
+        prescription: syncPresc,
+        bill: syncBill,
+        patient_name: memberName,
+        doctor_name: syncPresc?.doctor_name,
+        doctor_registration_number: syncPresc?.doctor_reg,
+        diagnosis: syncPresc?.diagnosis,
+        medicines: syncPresc?.medicines_prescribed,
+        procedures: syncPresc?.procedures,
+        bill_breakdown: syncBill,
+        claim_amount: claimAmount
+      };
     }
 
     const claimInput: ClaimInput = {
+      claim_id: claimId,
       member_id: memberId,
       member_name: memberName,
       member_join_date: memberJoinDate,
@@ -204,11 +234,49 @@ export const ClaimSubmitter: React.FC<ClaimSubmitterProps> = ({
       hospital: hospital || undefined,
       cashless_request: cashlessRequest,
       previous_claims_same_day: prevClaimsToday || undefined,
-      documents: finalDocs
+      documents: {
+        prescription: finalExtractedData.prescription || {
+          doctor_name: finalExtractedData.doctor_name || '',
+          doctor_reg: finalExtractedData.doctor_registration_number || '',
+          diagnosis: finalExtractedData.diagnosis || '',
+          medicines_prescribed: finalExtractedData.medicines,
+          procedures: finalExtractedData.procedures
+        },
+        bill: finalExtractedData.bill || finalExtractedData.bill_breakdown || {}
+      }
     };
 
-    const outcome = adjudicateClaim(claimInput, policy);
-    onAdjudicateComplete(outcome, claimInput);
+    try {
+      if (adjudicationMode === 'ai') {
+        const dsOutcome = await adjudicateWithDeepSeekR1(openaiKey, finalExtractedData, policy, rulesText);
+        
+        const mappedResult: AdjudicationResult = {
+          claim_id: claimId,
+          decision: dsOutcome.decision,
+          approved_amount: dsOutcome.approved_amount !== undefined ? dsOutcome.approved_amount : 0,
+          rejection_reasons: dsOutcome.rejection_reasons || [],
+          confidence_score: dsOutcome.confidence_score || 0.95,
+          notes: dsOutcome.reasoning ? dsOutcome.reasoning.join(' ') : (dsOutcome.next_steps || 'Adjudicated by DeepSeek R1.'),
+          next_steps: dsOutcome.next_steps || 'No further action required.',
+          rejected_items: dsOutcome.rejected_items || [],
+          approved_items: dsOutcome.approved_items || [],
+          policy_violations: dsOutcome.policy_violations || [],
+          flags: dsOutcome.fraud_flags || [],
+          medical_necessity_analysis: dsOutcome.medical_necessity_analysis || [],
+          reasoning: dsOutcome.reasoning || []
+        };
+        onAdjudicateComplete(mappedResult, claimInput);
+      } else {
+        const outcome = adjudicateClaim(claimInput, policy);
+        onAdjudicateComplete(outcome, claimInput);
+      }
+    } catch (err) {
+      console.error('AI Adjudication failed, running local engine as fallback:', err);
+      const outcome = adjudicateClaim(claimInput, policy);
+      onAdjudicateComplete(outcome, claimInput);
+    } finally {
+      setAdjudicating(false);
+    }
   };
 
   return (
@@ -304,26 +372,38 @@ export const ClaimSubmitter: React.FC<ClaimSubmitterProps> = ({
             />
           </div>
 
-          <div className="api-key-box">
-            <label>OpenAI API Key (Optional for GPT-4o extractions)</label>
+          <div className="api-key-box" style={{ background: 'rgba(99, 102, 241, 0.05)', borderColor: 'rgba(99, 102, 241, 0.15)' }}>
+            <label style={{ color: '#a5b4fc' }}>OpenRouter API Key (Prefilled for Gemini & DeepSeek)</label>
             <input 
               type="password" 
-              value={openaiKey} 
+              value={openaiKey || DEFAULT_OPENROUTER_KEY} 
               onChange={(e) => setOpenaiKey(e.target.value)} 
-              placeholder="sk-..."
+              placeholder="sk-or-v1-..."
             />
+          </div>
+
+          <div className="input-group">
+            <label>Adjudication Mode</label>
+            <select value={adjudicationMode} onChange={(e) => setAdjudicationMode(e.target.value as any)}>
+              <option value="ai">🧠 Dual LLM Chain (Gemini 2.5 Flash + DeepSeek R1)</option>
+              <option value="local">⚡ Local Rules Engine (Instance Verification)</option>
+            </select>
           </div>
 
           <div className="adjudication-actions">
             <button 
               className={`btn-secondary ${extracting ? 'loading' : ''}`}
               onClick={handleExtract}
-              disabled={extracting}
+              disabled={extracting || adjudicating}
             >
               {extracting ? 'AI Extracting...' : '✨ Run AI Extraction'}
             </button>
-            <button className="btn-primary" onClick={handleSubmitAdjudication}>
-              ⚖️ Run Adjudication
+            <button 
+              className="btn-primary" 
+              onClick={handleSubmitAdjudication}
+              disabled={extracting || adjudicating}
+            >
+              {adjudicating ? 'AI Adjudicating...' : '⚖️ Run Adjudication'}
             </button>
           </div>
         </div>

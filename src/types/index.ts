@@ -63,6 +63,41 @@ export interface AdjudicationResult {
     claimed: number;
     approved: number;
   }[];
+  // DeepSeek R1 Schema alignment fields
+  policy_violations?: string[];
+  approved_items?: string[];
+  fraud_flags?: string[];
+  medical_necessity_analysis?: string[];
+  reasoning?: string[];
+}
+
+export interface GeminiExtractionResult {
+  document_types: string[];
+  patient_name: string;
+  patient_age: string;
+  patient_gender: string;
+  doctor_name: string;
+  doctor_registration_number: string;
+  hospital_or_clinic: string;
+  treatment_date: string;
+  consultation_date: string;
+  invoice_numbers: string[];
+  diagnosis: string;
+  medicines: string[];
+  tests_prescribed: string[];
+  procedures: string[];
+  bill_breakdown: Record<string, any>;
+  claim_amount: number;
+  payment_mode: string;
+  documents_detected: string[];
+  missing_documents: string[];
+  document_issues: string[];
+  date_mismatches: string[];
+  authenticity_flags: string[];
+  possible_fraud_flags: string[];
+  ocr_quality_issues: string[];
+  ocr_confidence: number;
+  extraction_confidence: number;
 }
 
 export interface PolicyTerms {

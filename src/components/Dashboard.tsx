@@ -199,6 +199,33 @@ export const Dashboard: React.FC<DashboardProps> = ({ claims, onReviewClaim }) =
 
                   <p className="mt-2"><strong>Notes:</strong> {selectedClaim.result.notes}</p>
                   <p><strong>Next Steps:</strong> {selectedClaim.result.next_steps}</p>
+
+                  {selectedClaim.result.policy_violations && selectedClaim.result.policy_violations.length > 0 && (
+                    <div className="mt-4 text-danger">
+                      <strong>Policy Violations:</strong>
+                      <ul className="sub-list">
+                        {selectedClaim.result.policy_violations.map((v, i) => <li key={i}>{v}</li>)}
+                      </ul>
+                    </div>
+                  )}
+
+                  {selectedClaim.result.medical_necessity_analysis && selectedClaim.result.medical_necessity_analysis.length > 0 && (
+                    <div className="mt-4">
+                      <strong>Medical Necessity Review:</strong>
+                      <ul className="sub-list" style={{ color: 'var(--text-secondary)' }}>
+                        {selectedClaim.result.medical_necessity_analysis.map((a, i) => <li key={i}>{a}</li>)}
+                      </ul>
+                    </div>
+                  )}
+
+                  {selectedClaim.result.reasoning && selectedClaim.result.reasoning.length > 0 && (
+                    <div className="mt-4" style={{ fontSize: '0.85rem' }}>
+                      <strong>DeepSeek R1 Adjudication Pipeline:</strong>
+                      <ul className="sub-list" style={{ color: 'var(--text-muted)' }}>
+                        {selectedClaim.result.reasoning.map((r, i) => <li key={i}>{r}</li>)}
+                      </ul>
+                    </div>
+                  )}
                 </div>
               </div>
 
