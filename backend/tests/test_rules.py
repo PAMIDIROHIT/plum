@@ -3,12 +3,13 @@ import os
 import sys
 
 # Append backend directory to path
-sys.path.append(os.path.join(os.path.dirname(os.path.dirname(__file__)), "backend"))
+sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
 from app.services.rule_engine import adjudicate_claim_local
 
 def load_test_policy():
-    path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "assignment_docs", "policy_terms.json")
+    # Go up to the root directory to find assignment_docs/
+    path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "assignment_docs", "policy_terms.json")
     with open(path, "r") as f:
         return json.load(f)
 

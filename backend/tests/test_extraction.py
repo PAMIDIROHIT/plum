@@ -1,7 +1,7 @@
 import os
 import sys
 
-sys.path.append(os.path.join(os.path.dirname(os.path.dirname(__file__)), "backend"))
+sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
 from app.services.document_parser import parse_prescription_regex, parse_bill_regex
 
