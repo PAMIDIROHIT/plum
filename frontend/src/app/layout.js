@@ -24,6 +24,12 @@ export default function RootLayout({ children }) {
               <Link href="/upload" className="tab-btn">
                 ✍️ Submit Claim
               </Link>
+              <Link href="/policy" className="tab-btn">
+                ⚙️ Policy Config
+              </Link>
+              <Link href="/test-runner" className="tab-btn">
+                🧪 Test Runner
+              </Link>
             </div>
           </nav>
           

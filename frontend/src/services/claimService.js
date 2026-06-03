@@ -40,5 +40,39 @@ export const claimService = {
    */
   getHealth: async () => {
     return apiFetch('/health');
+  },
+
+  /**
+   * Fetches active policy configuration from backend.
+   */
+  getPolicy: async () => {
+    return apiFetch('/claims/policy');
+  },
+
+  /**
+   * Saves updated policy configuration to backend.
+   */
+  updatePolicy: async (policyData) => {
+    return apiFetch('/claims/policy', {
+      method: 'POST',
+      body: JSON.stringify(policyData)
+    });
+  },
+
+  /**
+   * Fetches the standard test cases from backend.
+   */
+  getTestCases: async () => {
+    return apiFetch('/claims/test-cases');
+  },
+
+  /**
+   * Submits a structured test case dictionary to backend test execution router.
+   */
+  runTestCase: async (testCase) => {
+    return apiFetch('/claims/run-test', {
+      method: 'POST',
+      body: JSON.stringify(testCase)
+    });
   }
 };

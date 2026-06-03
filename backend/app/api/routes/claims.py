@@ -9,6 +9,7 @@ from ...db.session import get_db
 from ...models.claim import ClaimModel
 from ...schemas.claim_schema import ClaimSubmitRequest
 from ...services.adjudication_service import process_and_adjudicate_claim
+from ...services.rule_engine import adjudicate_claim_local
 
 router = APIRouter()
 
@@ -20,8 +21,20 @@ class ManualReviewUpdateRequest(BaseModel):
 
 def load_policy_config() -> dict:
     """
-    Loads default active policy configuration from assignment_docs directory.
+    Loads active policy configuration, looking for dynamically saved version first,
+    then falling back to default terms.
     """
+    dynamic_path = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))),
+        "backend",
+        "app",
+        "db",
+        "policy_config.json"
+    )
+    if os.path.exists(dynamic_path):
+        with open(dynamic_path, "r") as f:
+            return json.load(f)
+
     policy_path = os.path.join(
         os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))),
         "assignment_docs",
@@ -127,3 +140,93 @@ def update_manual_review_status(review_req: ManualReviewUpdateRequest, db: Sessi
     db.refresh(claim)
     
     return {"status": "success", "claim_id": claim.claim_id, "decision": claim.decision}
+
+@router.get("/policy")
+def get_policy():
+    """
+    GET endpoint to retrieve the active policy configuration.
+    """
+    try:
+        policy = load_policy_config()
+        return policy
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/policy")
+def update_policy(policy_data: Dict[str, Any]):
+    """
+    POST endpoint to save/update the active policy configuration.
+    """
+    try:
+        dynamic_dir = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))),
+            "backend",
+            "app",
+            "db"
+        )
+        os.makedirs(dynamic_dir, exist_ok=True)
+        dynamic_path = os.path.join(dynamic_dir, "policy_config.json")
+        
+        with open(dynamic_path, "w") as f:
+            json.dump(policy_data, f, indent=2)
+            
+        return {"status": "success", "message": "Policy updated successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/test-cases")
+def get_test_cases():
+    """
+    GET endpoint to retrieve mock test cases for the frontend test runner.
+    """
+    try:
+        test_cases_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))),
+            "assignment_docs",
+            "test_cases.json"
+        )
+        if os.path.exists(test_cases_path):
+            with open(test_cases_path, "r") as f:
+                return json.load(f)
+        raise HTTPException(status_code=404, detail="Test cases file not found.")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/run-test")
+def run_test_case(test_case_payload: Dict[str, Any]):
+    """
+    Runs a single structured test case from test_cases.json against the active policy.
+    """
+    try:
+        policy = load_policy_config()
+        input_data = test_case_payload.get("input_data", {})
+        
+        # Format payload fields to match what adjudicate_claim_local expects
+        claim_payload = {
+            "claim_amount": float(input_data.get("claim_amount", 0.0)),
+            "member_name": input_data.get("member_name", "John Doe"),
+            "member_id": input_data.get("member_id", "EMP101"),
+            "member_join_date": input_data.get("member_join_date"),
+            "treatment_date": input_data.get("treatment_date", "2024-01-01"),
+            "hospital": input_data.get("hospital"),
+            "cashless_request": bool(input_data.get("cashless_request", False)),
+            "previous_claims_same_day": int(input_data.get("previous_claims_same_day", 0)),
+            "documents": input_data.get("documents", {})
+        }
+        
+        outcome = adjudicate_claim_local(claim_payload, policy)
+        
+        return {
+            "case_id": test_case_payload.get("case_id"),
+            "case_name": test_case_payload.get("case_name"),
+            "decision": outcome.get("decision", "REJECTED"),
+            "approved_amount": outcome.get("approved_amount", 0.0),
+            "rejection_reasons": outcome.get("rejection_reasons", []),
+            "copay_applied": outcome.get("copay_applied") or outcome.get("deductions", {}).get("copay"),
+            "network_discount_applied": outcome.get("network_discount_applied") or outcome.get("network_discount"),
+            "rejected_items": outcome.get("rejected_items"),
+            "flags": outcome.get("flags") or outcome.get("fraud_flags"),
+            "notes": outcome.get("notes") or "Test case run completed."
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
