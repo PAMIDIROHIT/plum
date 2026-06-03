@@ -1,4 +1,4 @@
-import { ClaimInput, AdjudicationResult, PolicyTerms, DoctorPrescription } from '../types';
+import type { ClaimInput, AdjudicationResult, PolicyTerms } from '../types';
 
 /**
  * Validates a doctor registration number against the standard Indian medical registration format.
@@ -47,14 +47,11 @@ export function adjudicateClaim(claim: ClaimInput, policy: PolicyTerms): Adjudic
   const rejectedItems: string[] = [];
   const flags: string[] = [];
   
-  // Set default output confidence score
-  let confidenceScore = 0.95;
+  // Set default output state variables
   let approvedAmount = 0;
   let copayApplied = 0;
   let networkDiscountApplied = 0;
   let cashlessApproved = false;
-  let notes = 'Claim adjudicated successfully.';
-  let nextSteps = 'No action required.';
 
   // ----------------------------------------------------
   // STEP 1: FRAUD & SUSPICIOUS PATTERN CHECKS (Priority)

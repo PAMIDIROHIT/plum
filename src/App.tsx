@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import type { PolicyTerms, ClaimInput, AdjudicationResult } from './types';
 import { Dashboard } from './components/Dashboard';
 import { ClaimSubmitter } from './components/ClaimSubmitter';

@@ -48,6 +48,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ claims, onReviewClaim }) =
           <span className="stat-value text-accent">{approvedClaims}</span>
         </div>
         <div className="stat-card">
+          <span className="stat-label">Claims Rejected</span>
+          <span className="stat-value text-danger">{rejectedClaims}</span>
+        </div>
+        <div className="stat-card">
           <span className="stat-label">Pending Manual Review</span>
           <span className="stat-value text-warning">{reviewPending}</span>
         </div>
