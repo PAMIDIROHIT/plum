@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import type { TestCase, PolicyTerms, AdjudicationResult } from '../types';
 import { adjudicateClaim } from '../utils/adjudicator';
-import testCasesData from '../../test_cases.json';
+import testCasesData from '../../assignment_docs/test_cases.json';
 
 interface TestRunnerProps {
   policy: PolicyTerms;

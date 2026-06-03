@@ -1,86 +1,79 @@
-# Plum AI Automation Engineer \- Intern Assignment Package
+# Plum OPD Claim Adjudication Tool
 
-## 📋 Overview
+An AI-powered insurance claim adjudication engine and interactive dashboard built to automate the processing, extraction, validation, and decision reasoning of Outpatient Department (OPD) medical claims.
 
-Welcome\! This package contains everything you need to complete the OPD Claim Adjudication Tool assignment for the AI Automation Engineer intern position at Plum.
+---
 
-## 📁 Package Contents
+## 🚀 Key Features
 
-assignment\_package/
+1. **Dual LLM Chain Pipeline**:
+   - **Gemini 2.5 Flash** (via OpenRouter): Executes high-accuracy OCR text structure parsing to extract patient metadata, doctor details, itemized bill breakdowns, and diagnosis details.
+   - **DeepSeek R1** (via OpenRouter): Executes advanced cognitive insurance reasoning against policy terms, waiting periods, network discounts, exclusions, duplicate checks, and medical necessity.
+2. **Interactive Adjudication Sandbox**:
+   - Toggles between **⚡ Local Rules Engine** (real-time programmatic rules) and **🧠 Dual LLM Chain** (complete cognitive AI reasoning).
+3. **Automated Test Runner Suite**:
+   - One-click execution of the 10 reference scenarios in `test_cases.json`, comparing actual results side-by-side with expected decisions, approved amounts, and rejection codes.
+4. **Dynamic Policy Configurator**:
+   - Interactive console to edit coverage limits, copay percentages, waiting periods, and exclusions on-the-fly.
+5. **Claims Audit & Review Desk**:
+   - Visual metrics and detailed rules verification trail logs for every claim, with built-in supervisor workflows to manually approve/reject flagged claims.
 
-│
+---
 
-├── README.md                       \# This file
+## 🛠️ Technology Stack
 
-├── plum\_intern\_assignment.md       \# Main assignment document with requirements
+- **Frontend**: React 19 + TypeScript + Vite
+- **Styling**: Premium HSL-based Custom CSS (glassmorphic dark-mode, custom animations)
+- **AI Core**: OpenRouter unified API (Gemini 2.5 Flash + DeepSeek R1)
 
-├── policy\_terms.json               \# Insurance policy configuration
+---
 
-├── adjudication\_rules.md          \# Business logic for claim decisions
+## 📦 Folder Structure
 
-├── test\_cases.json                 \# Test scenarios with expected outputs
+```text
+plum/
+├── assignment_docs/          # Original assignment instructions and inputs
+│   ├── ASSIGNMENT_README.md
+│   ├── plum_intern_assignment.md
+│   ├── policy_terms.json
+│   ├── adjudication_rules.md
+│   ├── test_cases.json
+│   └── sample_documents_guide.md
+├── src/
+│   ├── components/           # UI Views (Dashboard, Submitter, Policy, TestRunner)
+│   ├── types/                # TypeScript Interfaces
+│   ├── utils/                # Adjudicator Rules Engine & OpenRouter API client
+│   ├── App.tsx               # Primary App Layout & State Orchestrator
+│   └── main.tsx
+├── public/                   # Shared public assets
+├── .env                      # Local environment secrets (ignored by Git)
+├── package.json
+└── README.md                 # Project Overview & Guide (This File)
+```
 
-└── sample\_documents\_guide.md       \# Guide for creating test documents
+---
 
-## 🎯 Your Mission
+## ⚙️ Getting Started
 
-Build an AI-powered web application that automates the adjudication (approval/rejection) of OPD insurance claims by:
+### Prerequisites
+Ensure you have **Node.js** (v18+) and **npm** installed.
 
-1. Processing medical documents (bills, prescriptions)  
-2. Extracting relevant information using AI/LLMs  
-3. Validating against policy terms  
-4. Making intelligent approval/rejection decisions
+### Setup Instructions
 
-## 🚀 Getting Started
+1. Install dependencies:
+   ```bash
+   npm install
+   ```
 
-### Step 1: Read the Assignment
+2. Configure OpenRouter API Key:
+   The app reads your OpenRouter key from a local `.env` file. Create a `.env` file in the root folder:
+   ```text
+    VITE_OPENROUTER_KEY=your_openrouter_api_key_here
+   ```
+   *(Note: `.env` is listed in `.gitignore` and is never committed to keep credentials secure).*
 
-Start with `plum_intern_assignment.md` to understand the full requirements and evaluation criteria.
-
-### Step 2: Understand the Business Logic
-
-- Review `policy_terms.json` to understand coverage limits and exclusions  
-- Study `adjudication_rules.md` to learn the decision-making process  
-- Examine `test_cases.json` to see expected behavior
-
-### Step 3: Set Up Your Development Environment
-
-\# Clone this assignment package
-
-\# Set up your preferred tech stack (React/Next.js \+ Node/Python)
-
-\# Get API keys for LLM services (OpenAI, Claude, or open-source)
-
-### Step 4: Create Test Documents
-
-Use `sample_documents_guide.md` to understand medical document formats and create mock documents for testing.
-
-### Step 5: Build Your Solution
-
-Focus on:
-
-- Document upload and processing  
-- AI-powered data extraction  
-- Rule engine implementation  
-- Clean, intuitive UI  
-- Comprehensive testing
-
-## 💡 Pro Tips
-
-1. **Start Simple**: Build a basic working version first, then add advanced features  
-2. **Use AI Tools**: We encourage using Cursor, Copilot, or other AI coding assistants  
-3. **Document Everything**: Clear documentation shows your thinking process  
-4. **Test Thoroughly**: Use all provided test cases and create additional ones  
-5. **Ask Early**: If something is unclear, ask within the first 24 hours
-
-## 📊 Evaluation Focus Areas
-
-- **Core Functionality** (40%): Does it work correctly?  
-- **AI Integration** (25%): How effectively do you use LLMs?  
-- **Code Quality** (20%): Is the code clean and maintainable?  
-- **User Experience** (15%): Is it easy to use?
-
-## ⏰ Timeline
-
-- **Total Duration**: 2-3 days from receipt
-
+3. Run the development server:
+   ```bash
+   npm run dev
+   ```
+   Open **[http://localhost:5173](http://localhost:5173)** in your browser.

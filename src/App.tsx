@@ -4,7 +4,7 @@ import { Dashboard } from './components/Dashboard';
 import { ClaimSubmitter } from './components/ClaimSubmitter';
 import { PolicyExplorer } from './components/PolicyExplorer';
 import { TestRunner } from './components/TestRunner';
-import initialPolicyData from '../policy_terms.json';
+import initialPolicyData from '../assignment_docs/policy_terms.json';
 
 /**
  * Main App Component.
