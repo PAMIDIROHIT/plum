@@ -1,10 +1,25 @@
+# =====================================================================
+# Document Processing - Document Classification and Regex Extractions
+# =====================================================================
+
 import re
 from typing import Dict, Any
+
+def classify_document(text: str) -> str:
+    """
+    Classifies a raw text string into a category (prescription, bill, or other).
+    """
+    cleaned = text.lower()
+    if "rx:" in cleaned or "prescription" in cleaned or "diagnosis:" in cleaned:
+        return "prescription"
+    if "invoice" in cleaned or "bill" in cleaned or "total" in cleaned:
+        return "invoice"
+    return "unknown"
 
 def parse_prescription_regex(text: str) -> Dict[str, Any]:
     """
     Regex fallback prescription document text parser.
-    Extracts doctor details, registration format checks, and clinical diagnoses.
+    Extracts doctor details, registration numbers, and clinical diagnoses.
     """
     data = {
         "doctor_name": "Unknown Doctor",

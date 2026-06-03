@@ -1,5 +1,9 @@
+# =====================================================================
+# Database Claim Model Schema - Plum OPD Adjudication
+# =====================================================================
+
 from sqlalchemy import Column, Integer, String, Float, Text
-from ..db.database import Base
+from ..database import Base
 
 class ClaimModel(Base):
     """

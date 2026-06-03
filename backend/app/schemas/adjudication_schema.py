@@ -1,5 +1,9 @@
+# =====================================================================
+# Schemas - Claim Adjudication Input Schema
+# =====================================================================
+
 from pydantic import BaseModel
-from typing import Optional, Dict, Any
+from typing import Optional
 
 class ClaimSubmitRequest(BaseModel):
     """

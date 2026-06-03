@@ -1,1 +1,0 @@
-# Confidence score utility stub

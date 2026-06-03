@@ -5,7 +5,7 @@ import sys
 # Append backend directory to path
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
-from app.services.rule_engine import adjudicate_claim_local
+from app.adjudication.claim_adjudicator import run_local_adjudication_flow as adjudicate_claim_local
 
 def load_test_policy():
     # Go up to the root directory to find assignment_docs/

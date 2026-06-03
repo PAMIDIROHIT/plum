@@ -1,8 +1,8 @@
 import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from .db.database import engine, Base
-from .api.routes import health, upload, claims
+from .database.database import engine, Base
+from .api.routes import health, upload, adjudication
 
 # Auto bootstrap SQLite tables
 Base.metadata.create_all(bind=engine)
@@ -25,7 +25,7 @@ app.add_middleware(
 # Link routing blueprints
 app.include_router(health.router, prefix="/api", tags=["health"])
 app.include_router(upload.router, prefix="/api/docs", tags=["documents"])
-app.include_router(claims.router, prefix="/api/claims", tags=["claims"])
+app.include_router(adjudication.router, prefix="/api/claims", tags=["adjudication"])
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)

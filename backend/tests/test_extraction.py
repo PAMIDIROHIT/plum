@@ -3,7 +3,7 @@ import sys
 
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
-from app.services.document_parser import parse_prescription_regex, parse_bill_regex
+from app.document_processing.document_classifier import parse_prescription_regex, parse_bill_regex
 
 def test_parse_prescription_regex():
     prescription_text = """

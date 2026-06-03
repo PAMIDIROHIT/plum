@@ -1,3 +1,7 @@
+# =====================================================================
+# API Routes - Claim Adjudication Blueprint
+# =====================================================================
+
 import json
 import os
 from fastapi import APIRouter, Depends, HTTPException
@@ -5,11 +9,10 @@ from sqlalchemy.orm import Session
 from typing import List, Dict, Any
 from pydantic import BaseModel
 
-from ...db.session import get_db
-from ...models.claim import ClaimModel
-from ...schemas.claim_schema import ClaimSubmitRequest
-from ...services.adjudication_service import process_and_adjudicate_claim
-from ...services.rule_engine import adjudicate_claim_local
+from ...database.session import get_db
+from ...database.models.claim import ClaimModel
+from ...schemas.adjudication_schema import ClaimSubmitRequest
+from ...adjudication.claim_adjudicator import process_and_adjudicate_claim, run_local_adjudication_flow
 
 router = APIRouter()
 
@@ -214,7 +217,7 @@ def run_test_case(test_case_payload: Dict[str, Any]):
             "documents": input_data.get("documents", {})
         }
         
-        outcome = adjudicate_claim_local(claim_payload, policy)
+        outcome = run_local_adjudication_flow(claim_payload, policy)
         
         return {
             "case_id": test_case_payload.get("case_id"),
