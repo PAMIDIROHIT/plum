@@ -1,4 +1,4 @@
-import { DoctorPrescription, BillDetails } from '../types';
+import type { DoctorPrescription, BillDetails } from '../types';
 
 /**
  * Robust local fallback parser using Regular Expressions.

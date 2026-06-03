@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { TestCase, PolicyTerms, AdjudicationResult } from '../types';
+import { useState } from 'react';
+import type { TestCase, PolicyTerms, AdjudicationResult } from '../types';
 import { adjudicateClaim } from '../utils/adjudicator';
 import testCasesData from '../../test_cases.json';
 

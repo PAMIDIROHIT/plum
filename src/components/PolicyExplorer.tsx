@@ -1,5 +1,4 @@
-import React from 'react';
-import { PolicyTerms } from '../types';
+import type { PolicyTerms } from '../types';
 
 interface PolicyExplorerProps {
   policy: PolicyTerms;
