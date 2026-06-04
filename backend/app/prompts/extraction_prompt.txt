@@ -109,9 +109,44 @@ Important Rules:
 - Do NOT hallucinate values
 - If uncertain, return null
 - Preserve exact medical terminology
-- Extract exact monetary values
+- Extract exact monetary values (sum all invoice line items for claim_amount)
 - Preserve original diagnosis wording
 - Preserve medicine names exactly
 - Do not infer missing information
 - Return ONLY valid JSON
 - Do not include markdown or explanations
+
+MANDATORY OUTPUT FORMAT — You MUST return EXACTLY this JSON structure with these exact field names:
+
+{
+  "document_types": ["prescription", "invoice"],
+  "patient_name": "string or null",
+  "patient_age": "string or null",
+  "patient_gender": "string or null",
+  "doctor_name": "string or null",
+  "doctor_registration_number": "string or null",
+  "hospital_or_clinic": "string or null",
+  "treatment_date": "YYYY-MM-DD or null",
+  "consultation_date": "YYYY-MM-DD or null",
+  "invoice_numbers": [],
+  "diagnosis": "string or null",
+  "medicines": ["list of medicine names"],
+  "tests_prescribed": ["list of test names"],
+  "procedures": ["list of procedure names"],
+  "bill_breakdown": {
+    "item_name": amount_in_rupees
+  },
+  "claim_amount": 0.0,
+  "payment_mode": "string or null",
+  "documents_detected": ["list of document types found"],
+  "missing_documents": ["list of missing required documents"],
+  "document_issues": ["list of quality/legibility issues"],
+  "date_mismatches": ["list of date inconsistencies"],
+  "authenticity_flags": ["list of authenticity concerns"],
+  "possible_fraud_flags": ["list of fraud indicators"],
+  "ocr_quality_issues": ["list of OCR quality problems"],
+  "ocr_confidence": 0.0,
+  "extraction_confidence": 0.0
+}
+
+IMPORTANT for claim_amount: Sum ALL monetary line items from the invoice/bill to calculate the total claim amount. Never return 0 if invoice items are present.

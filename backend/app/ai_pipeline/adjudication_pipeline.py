@@ -6,7 +6,8 @@ import json
 import re
 from typing import Dict, Any
 from ..llm.prompt_manager import load_prompt_by_name
-from ..llm.deepseek_client import call_deepseek_api
+from ..llm.deepseek_client import call_deepseek_api, safe_json_parse
+
 
 def clean_thinking_tags(content: str) -> str:
     """
@@ -38,7 +39,8 @@ Adjudication Rules Guidebook:
 """
         raw_response = call_deepseek_api(system_prompt, user_payload)
         cleaned = clean_thinking_tags(raw_response)
-        return json.loads(cleaned)
+        return safe_json_parse(cleaned)
+
     except Exception as e:
         print("DeepSeek Adjudication pipeline failed, falling back to local engine:", e)
         # Import local rules executor as fallback
@@ -47,7 +49,7 @@ Adjudication Rules Guidebook:
         # Prepare structured input payload for local engine
         claim_payload = {
             "claim_amount": extracted_data.get("claim_amount", 0.0),
-            "member_name": extracted_data.get("patient_name", "Rajesh Kumar"),
+            "member_name": extracted_data.get("patient_name", "Unknown Patient"),
             "member_id": "EMP101",
             "hospital": extracted_data.get("hospital_or_clinic"),
             "cashless_request": extracted_data.get("payment_mode") == "Cashless",

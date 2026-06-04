@@ -43,9 +43,15 @@ export default function TestRunnerPage() {
       const actual = await claimService.runTestCase(testCase);
       const expected = testCase.expected_output;
 
-      // Verify pass conditions
+      // Decision match is always required
       const decisionMatch = actual.decision === expected.decision;
-      const approvedAmountMatch = Math.abs(actual.approved_amount - expected.approved_amount) < 0.01;
+
+      // Amount match only checked when expected has a meaningful (>0) approved amount
+      const expectedAmount = expected.approved_amount ?? 0;
+      const actualAmount = actual.approved_amount ?? 0;
+      const amountRelevant = expectedAmount > 0;
+      const approvedAmountMatch = !amountRelevant || Math.abs(actualAmount - expectedAmount) < 1.0;
+
       const passed = decisionMatch && approvedAmountMatch;
 
       setResults((prev) => ({

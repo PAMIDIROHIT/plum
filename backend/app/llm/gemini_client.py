@@ -1,63 +1,117 @@
 # =====================================================================
-# LLM Layer - Gemini 2.5 Flash OpenRouter Client
+# LLM Layer - Gemini Client (Native Google API + Async httpx + Vision)
 # =====================================================================
 
 import os
 import json
-import requests
-from typing import Dict, Any
+import base64
+import asyncio
+import httpx
+from typing import Dict, Any, Optional
 
-# Fetch API Key dynamically from environment variables
-OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}"
 
-def call_gemini_api(system_prompt: str, user_content: str) -> Dict[str, Any]:
+# ── Async version ────────────────────────────────────────────────────────────
+
+async def call_gemini_api_async(
+    system_prompt: str,
+    user_content: str,
+    image_bytes: Optional[bytes] = None,
+    image_mime: str = "image/jpeg",
+) -> Dict[str, Any]:
     """
-    Submits raw medical text inputs to Gemini 2.5 Flash via OpenRouter API.
-    Uses fallback model or raises Exception on timeout/network issues.
+    Async Gemini extraction call via Native Google AI Studio API.
+    Supports optional binary image attachment (Vision mode).
     """
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-        "HTTP-Referer": "http://localhost:3000",
-        "X-Title": "Plum Adjudicate"
-    }
-    
-    payload = {
-        "model": "google/gemini-2.5-flash",
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_content}
-        ],
-        "temperature": 0.1,
-        "response_format": {"type": "json_object"}
-    }
-    
-    try:
-        response = requests.post(
-            "https://openrouter.ai/api/v1/chat/completions",
-            headers=headers,
-            json=payload,
-            timeout=15
-        )
+    key = os.getenv("GEMINI_API_KEY", GEMINI_API_KEY)
+    if not key:
+        raise Exception("GEMINI_API_KEY is missing from environment variables.")
+
+    # Build payload for Google Generative AI REST API
+    parts = []
+    if image_bytes:
+        b64 = base64.b64encode(image_bytes).decode("utf-8")
+        parts.append({
+            "inlineData": {
+                "mimeType": image_mime,
+                "data": b64
+            }
+        })
         
-        if response.status_code == 200:
-            res_json = response.json()
-            content = res_json["choices"][0]["message"]["content"]
-            return json.loads(content)
+    parts.append({
+        "text": user_content or "Extract all medical information from this document."
+    })
+
+    payload = {
+        "systemInstruction": {
+            "parts": [{"text": system_prompt}]
+        },
+        "contents": [
+            {
+                "role": "user",
+                "parts": parts
+            }
+        ],
+        "generationConfig": {
+            "temperature": 0.1,
+            "responseMimeType": "application/json"
+        }
+    }
+
+    # gemini-1.5-flash is deprecated (404). Try 2.5-flash first.
+    models = ["gemini-2.5-flash", "gemini-1.5-flash"]
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        for model in models:
+            url = GEMINI_URL.format(model=model, key=key)
+            try:
+                resp = await client.post(
+                    url,
+                    headers={"Content-Type": "application/json"},
+                    json=payload,
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    content = data["candidates"][0]["content"]["parts"][0]["text"]
+                    return json.loads(content)
+                else:
+                    print(f"Gemini API {model} failed: {resp.text}")
+            except (httpx.TimeoutException, json.JSONDecodeError):
+                continue
+            except Exception as e:
+                print(f"Gemini API Error: {e}")
+                continue
+
+    raise Exception("All Gemini model variants failed via Google AI Studio.")
+
+# ── Sync wrapper (used by extraction_pipeline.py called from sync fallback) ──
+
+def call_gemini_api(
+    system_prompt: str,
+    user_content: str,
+    image_bytes: Optional[bytes] = None,
+    image_mime: str = "image/jpeg",
+) -> Dict[str, Any]:
+    """
+    Sync wrapper around the async Gemini client.
+    Runs the async coroutine inside a fresh event loop when called from sync code.
+    """
+    try:
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
             
-        # Attempt fallback to Gemini 1.5 flash model
-        payload["model"] = "google/gemini-flash-1.5"
-        fallback_resp = requests.post(
-            "https://openrouter.ai/api/v1/chat/completions",
-            headers=headers,
-            json=payload,
-            timeout=15
-        )
-        if fallback_resp.status_code == 200:
-            res_json = fallback_resp.json()
-            content = res_json["choices"][0]["message"]["content"]
-            return json.loads(content)
-            
-        raise Exception(f"OpenRouter Gemini API returned status {response.status_code}")
+        if loop and loop.is_running():
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor() as pool:
+                future = pool.submit(
+                    asyncio.run,
+                    call_gemini_api_async(system_prompt, user_content, image_bytes, image_mime),
+                )
+                return future.result(timeout=35)
+        else:
+            return asyncio.run(call_gemini_api_async(system_prompt, user_content, image_bytes, image_mime))
     except Exception as e:
         raise Exception(f"Gemini client communication failed: {str(e)}")

@@ -1,4 +1,4 @@
-import Link from 'next/link';
+import Navbar from '../components/Navbar';
 import './globals.css';
 
 export const metadata = {
@@ -12,26 +12,7 @@ export default function RootLayout({ children }) {
       <body>
         <div className="app-container">
           {/* Shared Navigation Header */}
-          <nav className="navbar">
-            <div className="logo-section">
-              <h1>🛡️ <span className="gradient-text">Plum Adjudicate</span></h1>
-              <p>AI OPD Claim Adjudication Suite</p>
-            </div>
-            <div className="nav-tabs">
-              <Link href="/dashboard" className="tab-btn">
-                📊 Dashboard
-              </Link>
-              <Link href="/upload" className="tab-btn">
-                ✍️ Submit Claim
-              </Link>
-              <Link href="/policy" className="tab-btn">
-                ⚙️ Policy Config
-              </Link>
-              <Link href="/test-runner" className="tab-btn">
-                🧪 Test Runner
-              </Link>
-            </div>
-          </nav>
+          <Navbar />
           
           <main className="tab-window">
             {children}

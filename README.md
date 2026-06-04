@@ -1,79 +1,145 @@
-# Plum OPD Claim Adjudication Tool
+# 🌟 Plum AI OPD Claim Adjudication System
 
-An AI-powered insurance claim adjudication engine and interactive dashboard built to automate the processing, extraction, validation, and decision reasoning of Outpatient Department (OPD) medical claims.
+An intelligent, production-grade AI automation pipeline designed to process, extract, validate, and adjudicate Outpatient Department (OPD) medical claims using multimodal LLMs (Gemini 2.5 Flash Vision) and advanced reasoning engines (DeepSeek R1).
 
----
-
-## 🚀 Key Features
-
-1. **Dual LLM Chain Pipeline**:
-   - **Gemini 2.5 Flash** (via OpenRouter): Executes high-accuracy OCR text structure parsing to extract patient metadata, doctor details, itemized bill breakdowns, and diagnosis details.
-   - **DeepSeek R1** (via OpenRouter): Executes advanced cognitive insurance reasoning against policy terms, waiting periods, network discounts, exclusions, duplicate checks, and medical necessity.
-2. **Interactive Adjudication Sandbox**:
-   - Toggles between **⚡ Local Rules Engine** (real-time programmatic rules) and **🧠 Dual LLM Chain** (complete cognitive AI reasoning).
-3. **Automated Test Runner Suite**:
-   - One-click execution of the 10 reference scenarios in `test_cases.json`, comparing actual results side-by-side with expected decisions, approved amounts, and rejection codes.
-4. **Dynamic Policy Configurator**:
-   - Interactive console to edit coverage limits, copay percentages, waiting periods, and exclusions on-the-fly.
-5. **Claims Audit & Review Desk**:
-   - Visual metrics and detailed rules verification trail logs for every claim, with built-in supervisor workflows to manually approve/reject flagged claims.
+Built for the **Plum AI Automation Engineer Intern** assignment.
 
 ---
 
-## 🛠️ Technology Stack
+## 🎯 Executive Summary
+This application transforms the highly manual, error-prone process of health insurance claim adjudication into a deterministic, AI-orchestrated pipeline. By combining the visual extraction power of **Gemini Vision** with the strict, step-by-step logic and reasoning of **DeepSeek R1**, the system achieves human-level auditing with complete mathematical enforcement of policy limits.
 
-- **Frontend**: React 19 + TypeScript + Vite
-- **Styling**: Premium HSL-based Custom CSS (glassmorphic dark-mode, custom animations)
-- **AI Core**: OpenRouter unified API (Gemini 2.5 Flash + DeepSeek R1)
+### ✨ Key Features
+- **Multimodal OCR**: Upload medical prescriptions and invoices.
+- **Dual-Engine Architecture**: 
+  - *AI Chain*: DeepSeek R1 acts as a reasoning engine for complex semantic checks (Medical Necessity, Fraud Detection).
+  - *Local Rules Engine*: A deterministic Python backend for instant, programmatic limit checks and sub-limit capping.
+- **Explainable AI (XAI)**: A beautiful **Policy Validation Checklist** that translates raw JSON AI output into a sequential passed/bypassed/failed checklist for claims auditors.
+- **Automated Test Suite**: A `/test-runner` dashboard to validate the deterministic rules engine instantly.
 
 ---
 
-## 📦 Folder Structure
+## 🏗️ System Architecture
 
-```text
-plum/
-├── assignment_docs/          # Original assignment instructions and inputs
-│   ├── ASSIGNMENT_README.md
-│   ├── plum_intern_assignment.md
-│   ├── policy_terms.json
-│   ├── adjudication_rules.md
-│   ├── test_cases.json
-│   └── sample_documents_guide.md
-├── src/
-│   ├── components/           # UI Views (Dashboard, Submitter, Policy, TestRunner)
-│   ├── types/                # TypeScript Interfaces
-│   ├── utils/                # Adjudicator Rules Engine & OpenRouter API client
-│   ├── App.tsx               # Primary App Layout & State Orchestrator
-│   └── main.tsx
-├── public/                   # Shared public assets
-├── .env                      # Local environment secrets (ignored by Git)
-├── package.json
-└── README.md                 # Project Overview & Guide (This File)
+The system is built using Domain-Driven Design (DDD) to isolate API routing, orchestration, LLM calling, and database persistence.
+
+```mermaid
+graph TD
+    %% Styling
+    classDef frontend fill:#3b82f6,stroke:#1d4ed8,stroke-width:2px,color:#fff
+    classDef backend fill:#10b981,stroke:#047857,stroke-width:2px,color:#fff
+    classDef ai fill:#8b5cf6,stroke:#5b21b6,stroke-width:2px,color:#fff
+    classDef db fill:#f59e0b,stroke:#b45309,stroke-width:2px,color:#fff
+
+    User((Claimant))
+    UI[Next.js Frontend]:::frontend
+    API[FastAPI Backend]:::backend
+    
+    User -->|Uploads Docs| UI
+    UI -->|POST /claims/submit| API
+    
+    subgraph Adjudication Orchestrator
+        API --> Extractor[Extraction Pipeline]
+        Extractor --> Logic[Decision Router]
+        Logic -->|AI Mode| AI_Engine[DeepSeek R1 Reasoning]
+        Logic -->|Local Mode| Local_Engine[Deterministic Rules Engine]
+    end
+    
+    Extractor -->|Images| Gemini[Gemini 2.5 Flash OCR]:::ai
+    Gemini -->|Extracted JSON| Extractor
+    
+    AI_Engine <-->|Policy Terms| PolicyDB[(policy_terms.json)]
+    Local_Engine <-->|Sub-limits/Caps| PolicyDB
+    
+    Logic --> Confidence[Confidence Scorer]
+    Confidence --> DB[(SQLite Database)]:::db
+    
+    DB -->|Result| API
+    API -->|Render Result| UI
 ```
 
 ---
 
-## ⚙️ Getting Started
+## 🧠 Decision Logic Flowchart
 
-### Prerequisites
-Ensure you have **Node.js** (v18+) and **npm** installed.
+```mermaid
+flowchart TD
+    classDef pass fill:#10b981,color:#fff,stroke:none
+    classDef fail fill:#ef4444,color:#fff,stroke:none
+    classDef review fill:#f59e0b,color:#fff,stroke:none
+    classDef process fill:#3b82f6,color:#fff,stroke:none
 
-### Setup Instructions
+    Start([Start Adjudication]) --> Elig{1. Eligibility Check}
+    
+    Elig -- Active --> Docs{2. Document Validity}
+    Elig -- Inactive/Waiting --> Reject_Elig[REJECTED: Policy Inactive]:::fail
+    
+    Docs -- Valid --> Cov{3. Coverage & Exclusions}
+    Docs -- Invalid/Mismatch --> Reject_Docs[REJECTED: Missing/Invalid]:::fail
+    
+    Cov -- Covered --> Lim{4. Limits & Sub-limits}
+    Cov -- Cosmetic/Excluded --> Reject_Cov[REJECTED: Excluded Condition]:::fail
+    
+    Lim -- Within Limits --> Med{5. Medical Necessity}
+    Lim -- Exceeds Per Claim --> Reject_Lim[REJECTED: Limit Exceeded]:::fail
+    Lim -- Exceeds Annual --> Partial[PARTIAL APPROVAL: Capped]:::review
+    
+    Med -- Justified --> Fraud{6. Fraud & Security}
+    Med -- Unjustified --> Reject_Med[REJECTED: Not Necessary]:::fail
+    
+    Fraud -- No Flags --> Approve[APPROVED: Ready for Payout]:::pass
+    Fraud -- Anomalies/Duplicates --> Manual[MANUAL REVIEW]:::review
+```
 
-1. Install dependencies:
-   ```bash
-   npm install
-   ```
+---
 
-2. Configure OpenRouter API Key:
-   The app reads your OpenRouter key from a local `.env` file. Create a `.env` file in the root folder:
-   ```text
-    VITE_OPENROUTER_KEY=your_openrouter_api_key_here
-   ```
-   *(Note: `.env` is listed in `.gitignore` and is never committed to keep credentials secure).*
+## 🚀 Setup & Installation
 
-3. Run the development server:
-   ```bash
-   npm run dev
-   ```
-   Open **[http://localhost:5173](http://localhost:5173)** in your browser.
+### 1. Prerequisites
+- Node.js (v18+)
+- Python (v3.9+)
+- API Keys for Google Gemini & OpenRouter (DeepSeek)
+
+### 2. Backend Setup
+```bash
+cd backend
+python -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+
+# Create .env file
+echo "GEMINI_API_KEY=your_key_here" > .env
+echo "OPENROUTER_API_KEY=your_key_here" >> .env
+
+# Run FastAPI Server
+uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+```
+
+### 3. Frontend Setup
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+The application will be running at `http://localhost:3000`.
+
+---
+
+## 📁 Project Documentation
+- 📄 **[API Documentation](./docs/api_documentation.md)**: Detailed API specs.
+- 🤔 **[Assumptions](./docs/assumptions.md)**: Logic and architecture assumptions.
+- 🧪 **[Test Cases](./assignment_docs/test_cases.json)**: Ground truth data.
+
+---
+
+## 🏆 Evaluation Highlights
+
+| Criteria | Implementation Details |
+|----------|------------------------|
+| **AI Integration** | Extracts data with Gemini Vision and runs complex semantic logic using DeepSeek R1 Chain-of-Thought. |
+| **Code Quality** | Pure Domain-Driven Design in Python. Modular `rule_engines`, `ai_pipelines`, and `adjudication` layers. |
+| **User Experience** | Explainable AI UI that maps raw rejection codes into a readable checklist for non-technical claims adjusters. |
+| **Bonus Features** | Multi-factor confidence scoring, dedicated automated test-runner suite, Local rule engine fallback. |
+
+*Built for Plum's mission to protect 10M lives by 2025.* 💜

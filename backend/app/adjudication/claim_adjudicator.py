@@ -5,6 +5,7 @@
 import json
 import os
 import random
+from datetime import datetime
 from sqlalchemy.orm import Session
 from typing import Dict, Any, List
 
@@ -21,6 +22,10 @@ from ..rule_engine.policy_rules import check_policy_waiting_periods
 from ..ai_pipeline.extraction_pipeline import run_extraction_pipeline
 from ..ai_pipeline.adjudication_pipeline import run_adjudication_pipeline
 from ..ai_pipeline.fraud_pipeline import execute_fraud_pipeline
+
+# Support modules
+from ..adjudication.confidence_scorer import calculate_adjudication_confidence
+from ..automation.workflow_engine import execute_claim_workflow
 
 def load_adjudication_rules_text() -> str:
     """
@@ -46,12 +51,25 @@ def load_adjudication_rules_text() -> str:
             
     return "Execute policy compliance rules."
 
-def run_local_adjudication_flow(claim: Dict[str, Any], policy: Dict[str, Any]) -> Dict[str, Any]:
+def run_local_adjudication_flow(claim: Dict[str, Any], policy: Dict[str, Any], ytd_approved_sum: float = 0.0) -> Dict[str, Any]:
     """
     Deterministic programmatic rule checks mapping to sub-engines.
     """
     claim_id = claim.get("claim_id") or f"CLM_{random.randint(100000, 999999)}"
     
+    # Enforce YTD Annual Limit
+    annual_limit = policy.get("coverage_details", {}).get("annual_limit", 999999.0)
+    if ytd_approved_sum >= annual_limit:
+        return {
+            "claim_id": claim_id,
+            "decision": "REJECTED",
+            "approved_amount": 0.0,
+            "rejection_reasons": ["ANNUAL_LIMIT_EXCEEDED"],
+            "confidence_score": 0.98,
+            "notes": f"Annual policy limit of ₹{annual_limit} has already been exhausted (YTD Approved: ₹{ytd_approved_sum}).",
+            "next_steps": "No further claims can be reimbursed under this policy for the current policy year."
+        }
+        
     # 1. Fraud / high-frequency validations
     fraud_flags = execute_fraud_pipeline(claim)
     if len(claim.get("flags", [])) > 0 or "Multiple claims same day" in fraud_flags:
@@ -118,35 +136,92 @@ def run_local_adjudication_flow(claim: Dict[str, Any], policy: Dict[str, Any]) -
             "next_steps": eligibility["next_steps"]
         }
 
-    # 5. Policy exclusions
+    # 5. Policy exclusions (Dynamic evaluation from policy_terms.json)
     prescription = claim.get("documents", {}).get("prescription", {})
     diagnosis_text = prescription.get("diagnosis", "").lower()
-    if any(k in diagnosis_text for k in ["obesity", "weight loss", "bariatric"]):
-        return {
-            "claim_id": claim_id,
-            "decision": "REJECTED",
-            "approved_amount": 0.0,
-            "rejection_reasons": ["SERVICE_NOT_COVERED"],
-            "confidence_score": 0.97,
-            "notes": "Weight loss treatments are excluded from coverage",
-            "next_steps": "This claim is ineligible for reimbursement because weight loss treatments are listed in policy exclusions."
-        }
+    treatment_text = prescription.get("treatment", "").lower()
+    procedures_text = " ".join(prescription.get("procedures", [])).lower()
+    combined_clinical_text = f"{diagnosis_text} {treatment_text} {procedures_text}"
 
     bill = claim.get("documents", {}).get("bill", {})
-    if bill.get("mri_scan", 0.0) >= 10000.0:
+
+    # Detect if this is a dental/alt-medicine claim that will be handled as itemized below.
+    # For those, cosmetic items are rejected line-by-line (teeth_whitening) but valid items
+    # (root_canal) are still approved — so skip blanket exclusion rejection.
+    has_dental_items = "root_canal" in bill or "teeth_whitening" in bill
+    has_alt_items = "therapy_charges" in bill
+
+    exclusions = policy.get("exclusions", [])
+    
+    # Map clinical synonyms to policy exclusions since the local engine lacks LLM semantics
+    exclusion_synonyms = {
+        "weight loss": ["obesity", "weight", "bariatric", "diet plan"],
+        "cosmetic": ["cosmetic", "aesthetic", "beauty", "whitening", "plastic surgery"],
+        "experimental": ["experimental", "unproven", "trial"],
+        "infertility": ["infertility", "ivf", "fertility"]
+    }
+
+    for exclusion in exclusions:
+        exclusion_lower = exclusion.lower()
+        # Find matching synonym list for this policy exclusion
+        keywords_to_check = [exclusion_lower.split()[0]]  # fallback to first word
+        for ex_key, syns in exclusion_synonyms.items():
+            if ex_key in exclusion_lower:
+                keywords_to_check = syns
+                break
+
+        if any(kw in combined_clinical_text for kw in keywords_to_check):
+            # For dental/alt-medicine itemized claims, cosmetic items are handled
+            # line-by-line in the partial-approval section below — don't blanket-reject.
+            if (exclusion_lower.startswith("cosmetic") or "whitening" in exclusion_lower) and (has_dental_items or has_alt_items):
+                continue
+            return {
+                "claim_id": claim_id,
+                "decision": "REJECTED",
+                "approved_amount": 0.0,
+                "rejection_reasons": ["SERVICE_NOT_COVERED"],
+                "confidence_score": 0.97,
+                "notes": f"Treatment matches policy exclusion: {exclusion}",
+                "next_steps": f"This claim is ineligible for reimbursement because '{exclusion}' is listed in policy exclusions."
+            }
+
+    # 6. Pre-authorization check for diagnostic tests
+    bill = claim.get("documents", {}).get("bill", {})
+    diagnostic_details = policy.get("coverage_details", {}).get("diagnostic_tests", {})
+    covered_tests = diagnostic_details.get("covered_tests", [])
+    
+    needs_preauth = False
+    preauth_test_name = ""
+    
+    # Check if bill contains high-value scans that require pre-auth in the policy
+    if bill.get("mri_scan", 0) > 0 and any("MRI" in t and "pre-auth" in t.lower() for t in covered_tests):
+        needs_preauth = True
+        preauth_test_name = "MRI scan"
+    elif bill.get("ct_scan", 0) > 0 and any("CT" in t and "pre-auth" in t.lower() for t in covered_tests):
+        needs_preauth = True
+        preauth_test_name = "CT scan"
+        
+    if needs_preauth:
         return {
             "claim_id": claim_id,
             "decision": "REJECTED",
             "approved_amount": 0.0,
             "rejection_reasons": ["PRE_AUTH_MISSING"],
             "confidence_score": 0.94,
-            "notes": "MRI scan requires pre-authorization for claims above ₹10000",
+            "notes": f"{preauth_test_name} requires pre-authorization as per policy terms.",
             "next_steps": "Please submit pre-authorization certificate or refer for manual review."
         }
 
-    # Hard cap limit check
+    # Detect claim type first (needed to decide whether to apply hard per-claim cap)
+    is_network = claim.get("hospital") in policy.get("network_hospitals", [])
+    cashless_request = claim.get("cashless_request", False)
+
+    is_alternative = "therapy_charges" in bill or "alternative_medicine" in bill or "alternative" in diagnosis_text
+    is_dental = "root_canal" in bill or "teeth_whitening" in bill or "dental" in diagnosis_text
+
+    # Hard cap limit check — skip for dental/alt medicine which use itemized partial approval
     per_claim_limit = policy["coverage_details"]["per_claim_limit"]
-    if claim_amount > per_claim_limit:
+    if claim_amount > per_claim_limit and not is_alternative and not is_dental:
         return {
             "claim_id": claim_id,
             "decision": "REJECTED",
@@ -157,32 +232,41 @@ def run_local_adjudication_flow(claim: Dict[str, Any], policy: Dict[str, Any]) -
             "next_steps": "Claims exceeding ₹5,000 per claim limit are rejected under standard policy terms."
         }
 
-    # Specific TC matches
-    member_name = claim.get("member_name", "")
-    if member_name == "Rajesh Kumar" and claim_amount == 1500.0:
+    if not is_alternative and not is_dental:
+        # Determine discount percentage
+        discount_pct = policy["coverage_details"]["consultation_fees"].get("network_discount", 20) / 100.0 if is_network else 0.0
+        # Determine copay percentage (waived for network cashless claims)
+        copay_pct = 0.0 if (is_network and cashless_request) else (policy["coverage_details"]["consultation_fees"].get("copay_percentage", 10) / 100.0)
+        
+        network_discount_applied = claim_amount * discount_pct
+        amount_after_discount = claim_amount - network_discount_applied
+        copay_applied = amount_after_discount * copay_pct
+        approved_amount = amount_after_discount - copay_applied
+        
+        # Enforce per-claim limit
+        per_claim_limit = policy["coverage_details"]["per_claim_limit"]
+        if claim_amount > per_claim_limit:
+            return {
+                "claim_id": claim_id,
+                "decision": "REJECTED",
+                "approved_amount": 0.0,
+                "rejection_reasons": ["PER_CLAIM_EXCEEDED"],
+                "confidence_score": 0.98,
+                "notes": f"Claim amount exceeds per-claim limit of ₹{per_claim_limit}",
+                "next_steps": "Claims exceeding ₹5,000 per claim limit are rejected under standard policy terms."
+            }
+            
         return {
             "claim_id": claim_id,
             "decision": "APPROVED",
-            "approved_amount": 1350.0,
+            "approved_amount": approved_amount,
             "rejection_reasons": [],
-            "confidence_score": 0.95,
-            "copay_applied": 150.0,
-            "notes": "OPD claim approved with standard 10% co-payment applied to the total claim.",
-            "next_steps": "Reimbursement of ₹1,350 will be credited to the employee's registered bank account."
-        }
-
-    is_network = claim.get("hospital") in policy["network_hospitals"]
-    if member_name == "Deepak Shah" and is_network and claim.get("cashless_request"):
-        return {
-            "claim_id": claim_id,
-            "decision": "APPROVED",
-            "approved_amount": 3600.0,
-            "rejection_reasons": [],
-            "confidence_score": 0.93,
-            "cashless_approved": True,
-            "network_discount_applied": 900.0,
-            "notes": "Cashless pre-approval authorized at Apollo Hospitals. 20% network discount applied.",
-            "next_steps": "Cashless facility active. Member pays zero copay at the counter."
+            "confidence_score": 0.93 if is_network else 0.95,
+            "copay_applied": copay_applied if copay_applied > 0 else None,
+            "network_discount_applied": network_discount_applied if network_discount_applied > 0 else None,
+            "cashless_approved": True if (is_network and cashless_request) else None,
+            "notes": "OPD claim approved with standard terms and concessions applied.",
+            "next_steps": "Reimbursement will be credited to the employee's registered account." if not cashless_request else "Cashless facility authorized. Member pays zero at counter."
         }
 
     # Itemized processing
@@ -196,7 +280,11 @@ def run_local_adjudication_flow(claim: Dict[str, Any], policy: Dict[str, Any]) -
     # 1. Consultation fee
     if "consultation_fee" in bill:
         val = bill["consultation_fee"]
-        concessions = apply_coverage_concessions("consultation_fees", val, policy, is_network)
+        # For specialized claims (dental/alt medicine), consultation is bundled — no copay
+        if is_alternative or is_dental:
+            concessions = {"approved_amount": val, "network_discount_applied": 0.0, "copay_applied": 0.0}
+        else:
+            concessions = apply_coverage_concessions("consultation_fees", val, policy, is_network)
         network_discount_applied += concessions["network_discount_applied"]
         copay_applied += concessions["copay_applied"]
         
@@ -250,15 +338,23 @@ def run_local_adjudication_flow(claim: Dict[str, Any], policy: Dict[str, Any]) -
         limits_checked.append({"category": "Alternative Medicine", "limit": limit_check["sub_limit"], "claimed": val, "approved": limit_check["approved_amount"]})
 
     approved_amount = max(0.0, temp_approved)
+    
+    # Enforce remaining YTD annual limit capping
+    remaining_limit = max(0.0, annual_limit - ytd_approved_sum)
+    if approved_amount > remaining_limit:
+        approved_amount = remaining_limit
+        is_partial = True
+        rejected_items.append(f"Cap applied: exceeds annual policy remaining limit of ₹{remaining_limit}")
+
     if approved_amount == 0.0:
         return {
             "claim_id": claim_id,
             "decision": "REJECTED",
             "approved_amount": 0.0,
-            "rejection_reasons": ["SERVICE_NOT_COVERED"],
+            "rejection_reasons": ["SERVICE_NOT_COVERED"] if ytd_approved_sum < annual_limit else ["ANNUAL_LIMIT_EXCEEDED"],
             "confidence_score": 0.9,
-            "notes": "None of the submitted items are eligible under policy benefits.",
-            "next_steps": "Please consult the policy document for covered services and sub-limits."
+            "notes": "None of the submitted items are eligible under policy benefits or annual limit is exhausted.",
+            "next_steps": "Please consult the policy document for covered services, remaining sub-limits, and YTD balances."
         }
 
     decision = "PARTIAL" if is_partial else "APPROVED"
@@ -286,10 +382,36 @@ def process_and_adjudicate_claim(claim_req: ClaimSubmitRequest, policy: dict, db
 === BILL/INVOICE DOCUMENT ===
 {claim_req.bill_text}
 """
-    # 1. OCR Extraction
+    # 1. OCR Extraction (Gemini Vision or text mode)
     extracted = run_extraction_pipeline(combined_docs)
-    member_name = claim_req.member_name or extracted.get("patient_name", "John Doe")
-    claim_amount = claim_req.claim_amount or extracted.get("claim_amount", 0.0)
+    member_name = claim_req.member_name or extracted.get("patient_name") or "John Doe"
+    # Fix: Python `or` treats 0.0 as falsy — use explicit check so user-provided amount is always respected
+    if claim_req.claim_amount is not None and claim_req.claim_amount > 0:
+        claim_amount = float(claim_req.claim_amount)
+    else:
+        claim_amount = float(extracted.get("claim_amount") or 0.0)
+
+    # Calculate YTD Approved amount for the member in the current treatment date's year
+    treatment_year = datetime.now().year
+    if claim_req.treatment_date:
+        try:
+            treatment_year = datetime.strptime(claim_req.treatment_date, "%Y-%m-%d").year
+        except Exception:
+            pass
+
+    prior_claims = db.query(ClaimModel).filter(
+        ClaimModel.member_id == claim_req.member_id,
+        ClaimModel.decision.in_(["APPROVED", "PARTIAL"])
+    ).all()
+
+    ytd_approved_sum = 0.0
+    for pc in prior_claims:
+        try:
+            pc_year = datetime.strptime(pc.treatment_date, "%Y-%m-%d").year
+            if pc_year == treatment_year:
+                ytd_approved_sum += pc.approved_amount
+        except Exception:
+            pass
 
     decision_data = {}
 
@@ -307,6 +429,21 @@ def process_and_adjudicate_claim(claim_req: ClaimSubmitRequest, policy: dict, db
             "next_steps": ds_verdict.get("next_steps", "Pending Action."),
             "meta": ds_verdict
         }
+
+        # Enforce YTD Annual Limit for AI Verdicts
+        annual_limit = policy.get("coverage_details", {}).get("annual_limit", 999999.0)
+        remaining_limit = max(0.0, annual_limit - ytd_approved_sum)
+        
+        if remaining_limit <= 0.0:
+            decision_data["decision"] = "REJECTED"
+            decision_data["approved_amount"] = 0.0
+            decision_data["rejection_reasons"] = list(set(decision_data.get("rejection_reasons", []) + ["ANNUAL_LIMIT_EXCEEDED"]))
+            decision_data["notes"] = f"Annual policy limit of ₹{annual_limit} exhausted. YTD Approved: ₹{ytd_approved_sum}."
+        elif decision_data.get("approved_amount", 0.0) > remaining_limit:
+            decision_data["approved_amount"] = remaining_limit
+            if decision_data["decision"] == "APPROVED":
+                decision_data["decision"] = "PARTIAL"
+            decision_data["notes"] = decision_data.get("notes", "") + f" | Cap applied: exceeds remaining annual policy limit of ₹{remaining_limit}."
     else:
         # Local Rules engine
         claim_payload = {
@@ -327,7 +464,7 @@ def process_and_adjudicate_claim(claim_req: ClaimSubmitRequest, policy: dict, db
                 "bill": extracted.get("bill_breakdown", {})
             }
         }
-        outcome = run_local_adjudication_flow(claim_payload, policy)
+        outcome = run_local_adjudication_flow(claim_payload, policy, ytd_approved_sum)
         
         decision_data = {
             "decision": outcome.get("decision", "APPROVED"),
@@ -339,34 +476,83 @@ def process_and_adjudicate_claim(claim_req: ClaimSubmitRequest, policy: dict, db
             "meta": outcome
         }
 
-    # 3. DB Persistence
+    # 3. Compute final confidence score via multi-factor scorer
+    claim_payload_for_scoring = {
+        "member_id": claim_req.member_id,
+        "treatment_date": claim_req.treatment_date,
+        "documents": {
+            "prescription": {
+                "doctor_reg": extracted.get("doctor_registration_number", "")
+            }
+        }
+    }
+    final_confidence = calculate_adjudication_confidence(
+        meta=decision_data,
+        extraction_data=extracted,
+        claim=claim_payload_for_scoring
+    )
+    decision_data["confidence_score"] = final_confidence
+
+    # 4. Determine workflow state
+    workflow_ctx = execute_claim_workflow(decision_data)
+    meta_with_workflow = {**decision_data.get("meta", {}), "workflow": workflow_ctx}
+
+    # 5. DB Persistence
     db_claim = ClaimModel(
-        claim_id=decision_data.get("meta", {}).get("claim_id") or f"CLM_{claim_req.member_id}_{claim_req.treatment_date}",
+        claim_id=decision_data.get("meta", {}).get("claim_id") or (
+            f"CLM_{claim_req.member_id}_{claim_req.treatment_date}_{datetime.now().strftime('%H%M%S%f')}"
+        ),
+
         member_id=claim_req.member_id,
         member_name=member_name,
         treatment_date=claim_req.treatment_date,
         claim_amount=claim_amount,
         approved_amount=decision_data.get("approved_amount", 0.0),
         decision=decision_data.get("decision", "MANUAL_REVIEW"),
+        confidence_score=final_confidence,
         rejection_reasons=json.dumps(decision_data.get("rejection_reasons", [])),
         notes=decision_data.get("notes", ""),
         next_steps=decision_data.get("next_steps", ""),
         raw_input=json.dumps(extracted),
-        adjudication_meta=json.dumps(decision_data.get("meta", {}))
+        adjudication_meta=json.dumps(meta_with_workflow)
     )
-    
+
     db.add(db_claim)
     db.commit()
     db.refresh(db_claim)
+
+
+    # Build extraction_data for frontend display (Gemini-extracted fields)
+    extraction_data = {
+        "patient_name": extracted.get("patient_name"),
+        "doctor_name": extracted.get("doctor_name"),
+        "doctor_registration_number": extracted.get("doctor_registration_number"),
+        "hospital_or_clinic": extracted.get("hospital_or_clinic"),
+        "diagnosis": extracted.get("diagnosis"),
+        "medicines": extracted.get("medicines"),
+        "tests_prescribed": extracted.get("tests_prescribed"),
+        "procedures": extracted.get("procedures"),
+        "bill_breakdown": extracted.get("bill_breakdown"),
+        "treatment_date": extracted.get("treatment_date"),
+        "ocr_confidence": extracted.get("ocr_confidence"),
+        "extraction_confidence": extracted.get("extraction_confidence"),
+        "document_types": extracted.get("document_types"),
+        "possible_fraud_flags": extracted.get("possible_fraud_flags"),
+        "document_issues": extracted.get("document_issues"),
+        "missing_documents": extracted.get("missing_documents"),
+    }
 
     return {
         "claim_id": db_claim.claim_id,
         "decision": db_claim.decision,
         "approved_amount": db_claim.approved_amount,
+        "claim_amount": claim_amount,
         "rejection_reasons": json.loads(db_claim.rejection_reasons),
-        "confidence_score": decision_data.get("confidence_score", 0.95),
+        "confidence_score": final_confidence,
         "notes": db_claim.notes,
         "next_steps": db_claim.next_steps,
+        "workflow_state": workflow_ctx.get("workflow_state"),
+        "workflow_description": workflow_ctx.get("state_description"),
         "copay_applied": decision_data.get("meta", {}).get("copay_applied") or decision_data.get("meta", {}).get("deductions", {}).get("copay"),
         "network_discount_applied": decision_data.get("meta", {}).get("network_discount_applied") or decision_data.get("meta", {}).get("network_discount"),
         "rejected_items": decision_data.get("meta", {}).get("rejected_items"),
@@ -374,5 +560,6 @@ def process_and_adjudicate_claim(claim_req: ClaimSubmitRequest, policy: dict, db
         "policy_violations": decision_data.get("meta", {}).get("policy_violations"),
         "flags": decision_data.get("meta", {}).get("fraud_flags") or decision_data.get("meta", {}).get("flags"),
         "medical_necessity_analysis": decision_data.get("meta", {}).get("medical_necessity_analysis"),
-        "reasoning": decision_data.get("meta", {}).get("reasoning")
+        "reasoning": decision_data.get("meta", {}).get("reasoning"),
+        "extraction_data": extraction_data,
     }

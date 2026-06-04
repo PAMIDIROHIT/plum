@@ -16,6 +16,10 @@ from ...adjudication.claim_adjudicator import process_and_adjudicate_claim, run_
 
 router = APIRouter()
 
+# Determine project workspace root directory (5 levels up from adjudication.py)
+ROOT_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
+
+
 # Schema for updating review decisions
 class ManualReviewUpdateRequest(BaseModel):
     claim_id: str
@@ -27,32 +31,18 @@ def load_policy_config() -> dict:
     Loads active policy configuration, looking for dynamically saved version first,
     then falling back to default terms.
     """
-    dynamic_path = os.path.join(
-        os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))),
-        "backend",
-        "app",
-        "db",
-        "policy_config.json"
-    )
+    dynamic_path = os.path.join(ROOT_DIR, "backend", "app", "db", "policy_config.json")
     if os.path.exists(dynamic_path):
         with open(dynamic_path, "r") as f:
             return json.load(f)
 
-    policy_path = os.path.join(
-        os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))),
-        "assignment_docs",
-        "policy_terms.json"
-    )
+    policy_path = os.path.join(ROOT_DIR, "assignment_docs", "policy_terms.json")
     if os.path.exists(policy_path):
         with open(policy_path, "r") as f:
             return json.load(f)
             
     # Fallback to copy in public
-    public_path = os.path.join(
-        os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))),
-        "public",
-        "policy_terms.json"
-    )
+    public_path = os.path.join(ROOT_DIR, "frontend", "public", "policy_terms.json")
     if os.path.exists(public_path):
         with open(public_path, "r") as f:
             return json.load(f)
@@ -85,6 +75,24 @@ def get_claims_history(db: Session = Depends(get_db)):
         meta = json.loads(claim.adjudication_meta) if claim.adjudication_meta else {}
         raw_input = json.loads(claim.raw_input) if claim.raw_input else {}
         
+        # Extract Gemini-extracted fields stored in raw_input
+        extraction_data = {
+            "patient_name": raw_input.get("patient_name"),
+            "doctor_name": raw_input.get("doctor_name"),
+            "doctor_registration_number": raw_input.get("doctor_registration_number"),
+            "hospital_or_clinic": raw_input.get("hospital_or_clinic"),
+            "diagnosis": raw_input.get("diagnosis"),
+            "medicines": raw_input.get("medicines"),
+            "tests_prescribed": raw_input.get("tests_prescribed"),
+            "procedures": raw_input.get("procedures"),
+            "bill_breakdown": raw_input.get("bill_breakdown"),
+            "treatment_date": raw_input.get("treatment_date"),
+            "ocr_confidence": raw_input.get("ocr_confidence"),
+            "extraction_confidence": raw_input.get("extraction_confidence"),
+            "document_types": raw_input.get("document_types"),
+            "possible_fraud_flags": raw_input.get("possible_fraud_flags"),
+        }
+        
         history.append({
             "claim_id": claim.claim_id,
             "member_id": claim.member_id,
@@ -105,6 +113,7 @@ def get_claims_history(db: Session = Depends(get_db)):
             "medical_necessity_analysis": meta.get("medical_necessity_analysis"),
             "reasoning": meta.get("reasoning"),
             "confidence_score": meta.get("confidence_score", 0.95),
+            "extraction_data": extraction_data,
             "input": {
                 "member_id": claim.member_id,
                 "member_name": claim.member_name,
@@ -115,6 +124,7 @@ def get_claims_history(db: Session = Depends(get_db)):
         })
         
     return history
+
 
 @router.post("/review")
 def update_manual_review_status(review_req: ManualReviewUpdateRequest, db: Session = Depends(get_db)):
@@ -161,12 +171,7 @@ def update_policy(policy_data: Dict[str, Any]):
     POST endpoint to save/update the active policy configuration.
     """
     try:
-        dynamic_dir = os.path.join(
-            os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))),
-            "backend",
-            "app",
-            "db"
-        )
+        dynamic_dir = os.path.join(ROOT_DIR, "backend", "app", "db")
         os.makedirs(dynamic_dir, exist_ok=True)
         dynamic_path = os.path.join(dynamic_dir, "policy_config.json")
         
@@ -183,11 +188,7 @@ def get_test_cases():
     GET endpoint to retrieve mock test cases for the frontend test runner.
     """
     try:
-        test_cases_path = os.path.join(
-            os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))),
-            "assignment_docs",
-            "test_cases.json"
-        )
+        test_cases_path = os.path.join(ROOT_DIR, "assignment_docs", "test_cases.json")
         if os.path.exists(test_cases_path):
             with open(test_cases_path, "r") as f:
                 return json.load(f)

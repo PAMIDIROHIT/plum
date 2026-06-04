@@ -167,3 +167,32 @@ Important Rules:
 - Explain all rejection reasons clearly
 - Return ONLY valid JSON
 - Do not include markdown or explanations
+
+MANDATORY OUTPUT FORMAT — You MUST return EXACTLY this JSON structure with these exact field names:
+
+{
+  "decision": "APPROVED or REJECTED or PARTIAL or MANUAL_REVIEW",
+  "approved_amount": 0.0,
+  "rejection_reasons": ["list of rejection reason codes from the rules"],
+  "confidence_score": 0.0,
+  "reasoning": ["step-by-step reasoning bullet points explaining your decision"],
+  "next_steps": "what the claimant should do next",
+  "approved_items": ["list of approved billing items"],
+  "rejected_items": ["list of rejected billing items with reason"],
+  "policy_violations": ["list of specific policy rules that were violated"],
+  "medical_necessity_analysis": ["medical necessity evaluation points"],
+  "fraud_flags": ["list of fraud/anomaly indicators detected, empty list if none"],
+  "deductions": {
+    "copay": 0.0,
+    "network_discount": 0.0
+  },
+  "network_hospital": true,
+  "cashless_approved": false
+}
+
+IMPORTANT:
+- approved_amount must be the final payable amount AFTER all deductions (copay, limits, etc.)
+- confidence_score must be between 0.0 and 1.0
+- If confidence_score < 0.70, decision MUST be MANUAL_REVIEW
+- reasoning must be a LIST of strings, not a single string
+- rejection_reasons must use the exact codes from the adjudication rules (e.g. PER_CLAIM_EXCEEDED, WAITING_PERIOD)
