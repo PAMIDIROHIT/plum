@@ -10,7 +10,9 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Default MongoDB URL
-MONGODB_URL = os.getenv("MONGODB_URL", "mongodb://localhost:27017")
+# Note: In Render, .env is not present, so we use the Atlas URI as a fallback
+ATLAS_URI = "mongodb+srv://rohithtnsp_db_user:7286027547@cluster0.xqz3vjx.mongodb.net/?appName=Cluster0"
+MONGODB_URL = os.getenv("MONGODB_URL") or os.getenv("MONGO_URI") or ATLAS_URI
 
 # Initialize MongoDB client
 client = MongoClient(MONGODB_URL)
