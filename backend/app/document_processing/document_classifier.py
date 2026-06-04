@@ -32,27 +32,59 @@ def parse_prescription_regex(text: str) -> Dict[str, Any]:
         "tests_prescribed": []
     }
 
-    # ── Doctor Name ────────────────────────────────────────────────────────────
-    # Priority 1: "Doctor: Dr. Smith" or "Doctor: Smith" labeled field
+    # Helper: reject obviously wrong doctor names extracted from label text
+    _BAD_DOC_NAMES = {'name', 'doctor', 'reg', 'no', 'number', 'mbbs', 'md', 'unknown'}
+
+    def _is_valid_doctor_name(n: str) -> bool:
+        words = n.lower().split()
+        return len(words) >= 1 and not any(w in _BAD_DOC_NAMES for w in words) and len(n) > 2
+
+    # Priority 1: Labeled field with Dr. prefix — "Doctor: Dr. Smith"
     doc_label_match = re.search(
-        r"Doctor[:\s]+Dr\.?\s*([A-Za-z][A-Za-z\s]{1,30}?)(?:\s*[\(\|,\n]|\s*MBBS|\s*MD|\s*$)",
+        r"Doctor[:\s]+Dr\.?\s*([A-Za-z][A-Za-z ]{1,25}?)(?:\s*[\(\|,\n]|\s*MBBS|\s*MD|\s*$)",
         text, re.IGNORECASE
     )
     if doc_label_match:
-        data["doctor_name"] = f"Dr. {doc_label_match.group(1).strip()}"
-    else:
-        # Priority 2: "Dr. Smith" anywhere in text — take first non-trivial match
-        dr_match = re.search(r"\bDr\.?\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\b", text)
+        candidate = doc_label_match.group(1).strip()
+        if _is_valid_doctor_name(candidate):
+            data["doctor_name"] = f"Dr. {candidate}"
+
+    if data["doctor_name"] == "Unknown Doctor":
+        # Priority 2: Labeled field without Dr. prefix — "Doctor: Smith" or "Doctor Name: Iyer"
+        doc_name_only = re.search(
+            r"Doctor(?:\s+Name)?[:\s]+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)(?:\s*[\(\|,\n]|\s*MBBS|\s*$)",
+            text, re.IGNORECASE
+        )
+        if doc_name_only:
+            candidate = doc_name_only.group(1).strip()
+            if _is_valid_doctor_name(candidate):
+                data["doctor_name"] = f"Dr. {candidate}"
+
+    if data["doctor_name"] == "Unknown Doctor":
+        # Priority 3: "Dr. Iyer" or "Dr Iyer" anywhere — stop BEFORE state code (2 caps + /)
+        # Negative lookahead ensures we don't grab state code letters like 'TN' after the name
+        dr_match = re.search(
+            r"\bDr\.?\s+([A-Za-z][a-z]+(?:\s+(?!(?:[A-Z]{2}[/\s]|MBBS|MD|Name))[A-Z][a-z]+)?)",
+            text, re.IGNORECASE
+        )
         if dr_match:
-            data["doctor_name"] = f"Dr. {dr_match.group(1).strip()}"
-        else:
-            # Priority 3: Consulting Doctor label from invoice
-            consulting_match = re.search(
-                r"Consulting\s+Doctor[:\s]+(?:DR\.?\s*)?([A-Za-z][A-Za-z\s]{1,25}?)(?:\s*[\(\n,]|$)",
-                text, re.IGNORECASE
-            )
-            if consulting_match:
-                data["doctor_name"] = f"Dr. {consulting_match.group(1).strip().title()}"
+            name_raw = dr_match.group(1).strip().title()
+            # Remove any trailing noise (single uppercase letters that are state codes)
+            name_raw = re.sub(r'\s+[A-Z][a-z]?$', '', name_raw).strip()
+            if _is_valid_doctor_name(name_raw):
+                data["doctor_name"] = f"Dr. {name_raw}"
+
+    if data["doctor_name"] == "Unknown Doctor":
+        # Priority 4: Consulting Doctor label from invoice
+        consulting_match = re.search(
+            r"Consulting\s+Doctor[:\s]+(?:DR\.?\s*)?([A-Za-z][A-Za-z ]{1,25}?)(?:\s*[\(\n,]|$)",
+            text, re.IGNORECASE
+        )
+        if consulting_match:
+            candidate = consulting_match.group(1).strip().title()
+            if _is_valid_doctor_name(candidate):
+                data["doctor_name"] = f"Dr. {candidate}"
+
 
     # ── Doctor Registration Number ─────────────────────────────────────────────
     # ONLY match when preceded by a registration label to avoid prescription numbers.
@@ -77,25 +109,48 @@ def parse_prescription_regex(text: str) -> Dict[str, Any]:
             data["doctor_registration_number"] = f"{strict_match.group(1)}/{strict_match.group(2)}/{strict_match.group(3)}"
 
     # ── Diagnosis ─────────────────────────────────────────────────────────────
-    # Match "Diagnosis:" or "Diagnosis :" label and grab rest of the line
+    # Match "Diagnosis:" label and grab rest of the line
     diag_match = re.search(r"Diagnosis\s*:\s*([^\n\r]{3,120})", text, re.IGNORECASE)
     if diag_match:
         raw_diag = diag_match.group(1).strip()
-        # Strip trailing noise like "Prescribed Medicines" or similar
-        raw_diag = re.split(r'\s*(?:Prescribed|Rx:|Medicines|Doctor)', raw_diag, flags=re.IGNORECASE)[0]
-        data["diagnosis"] = raw_diag.strip() or "Not specified"
+        # Strip trailing noise like "Prescribed Medicines", "Doctor", or OCR artifacts
+        raw_diag = re.split(r'\s*(?:Prescribed|Rx:|Medicines|Doctor|$)', raw_diag, flags=re.IGNORECASE)[0]
+        # Clean OCR artifacts: trailing underscores, dashes, special chars
+        raw_diag = re.sub(r'[_\-]+$', '', raw_diag).strip()
+        # Clean embedded OCR underscores used as separators (e.g. "Acute_bronchitis")
+        raw_diag = raw_diag.replace('_', ' ').strip()
+        data["diagnosis"] = raw_diag if len(raw_diag) > 2 else "Not specified"
 
     # ── Medicines ─────────────────────────────────────────────────────────────
     medicines = []
-    # Match numbered list items: "1. Tab. Paracetamol 650mg" or "1. Amoxicillin 500mg"
+    # Priority 1: Match Tab/Cap/Inj/Syp prefixed drugs
     med_matches = re.findall(
-        r'(?:Tab(?:let)?\.?|Cap(?:sule)?\.?|Inj\.?|Syp\.?|Syr\.?|Drops?\.?)[\s.]*([A-Za-z][A-Za-z\s]+(?:\d+\s*mg)?)',
+        r'(?:Tab(?:let)?\.?|Cap(?:sule)?\.?|Inj\.?|Syp\.?|Syr\.?|Drops?\.?)[\s.]*([A-Za-z][A-Za-z ]+(?:\d+\s*mg)?)',
         text, re.IGNORECASE
     )
     for m in med_matches:
-        name = m.strip()
+        name = m.strip().rstrip('_-.')
         if 3 < len(name) < 60:
             medicines.append(name)
+    # Priority 2: Numbered list items like "1. Paracetamol 650mg" if no prefix found
+    if not medicines:
+        num_meds = re.findall(
+            r'^\s*\d+\.\s+([A-Za-z][A-Za-z ]+(?:\d+\s*mg)?)\b',
+            text, re.IGNORECASE | re.MULTILINE
+        )
+        for m in num_meds:
+            name = m.strip().rstrip('_-.')
+            if 3 < len(name) < 60:
+                medicines.append(name)
+    # Priority 3: "Medicines: Amoxicillin, Salbutamol" labeled comma-separated list
+    if not medicines:
+        med_label = re.search(r'Medicines?[:\s]+(.+?)(?=\n|$)', text, re.IGNORECASE)
+        if med_label:
+            raw_meds = med_label.group(1).strip()
+            for part in re.split(r'[,;]', raw_meds):
+                part = part.strip().rstrip('_.').strip()
+                if 3 < len(part) < 50:
+                    medicines.append(part)
     if medicines:
         data["medicines"] = medicines[:8]  # cap at 8
 

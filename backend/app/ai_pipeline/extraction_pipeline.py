@@ -12,13 +12,20 @@ from ..document_processing.document_classifier import parse_prescription_regex, 
 
 def _extract_patient_name(text: str) -> Optional[str]:
     """Extract patient name from raw document text."""
-    # Priority 1: labeled field — handles both Title Case and UPPERCASE
-    match = re.search(r"Patient(?:\s+Name)?[:\s]+([A-Za-z][A-Za-z\s]{2,40})", text, re.IGNORECASE)
+    # Stop pattern: any label word followed by colon means we've gone too far
+    # Uses a stop-lookahead so we don't consume the next field
+    match = re.search(
+        r"Patient(?:\s+Name)?[:\s]+([A-Za-z][A-Za-z ]{1,35}?)(?=\s*(?:[:\n]|Age|Sex|Dob|Date|Doctor|Gender|Address|Reg|Diagnosis|$))",
+        text, re.IGNORECASE
+    )
     if match:
         name = match.group(1).strip().title()  # normalize ROHIT PAMIDI -> Rohit Pamidi
-        for noise in ["Age", "Sex", "Dob", "Date", "Diagnosis", "Rx", "Address", "Gender"]:
-            if noise.lower() in name.lower():
-                name = name[:name.lower().index(noise.lower())].strip()
+        # Belt-and-suspenders: strip any noise words that slipped through
+        for noise in ["Age", "Sex", "Dob", "Date", "Diagnosis", "Rx", "Address", "Gender", "Doctor", "Reg"]:
+            idx = name.lower().find(noise.lower())
+            if idx > 0:
+                name = name[:idx].strip()
+        name = name.rstrip('_-.,').strip()
         return name if len(name) > 2 else None
     return None
 
