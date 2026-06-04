@@ -1,4 +1,4 @@
-const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api';
+const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://plum-turn.onrender.com/api';
 
 /**
  * Clean HTTP client fetch wrapper pointing to the backend API port.
