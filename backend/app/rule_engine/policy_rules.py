@@ -8,7 +8,7 @@ def check_policy_waiting_periods(
     """
     Validates waiting period regulations (initial period or specific diseases like diabetes).
     """
-    diagnosis = claim.get("documents", {}).get("prescription", {}).get("diagnosis", "").lower()
+    diagnosis = (claim.get("documents", {}).get("prescription", {}).get("diagnosis") or "").lower()
     
     join_date_str = claim.get("member_join_date")
     treatment_date_str = claim.get("treatment_date")
@@ -22,6 +22,15 @@ def check_policy_waiting_periods(
         treatment_date = datetime.strptime(treatment_date_str, "%Y-%m-%d")
         days_since_joining = (treatment_date - join_date).days
         
+        # 0. Check if treatment date is BEFORE policy start date (Negative days)
+        if days_since_joining < 0:
+            return {
+                "eligible": False,
+                "rejection_reason": "POLICY_INACTIVE",
+                "notes": f"Treatment date ({treatment_date_str}) is before the policy start date ({join_date_str}).",
+                "next_steps": "Cannot claim for treatments that occurred before policy inception."
+            }
+            
         # 1. Check initial waiting period (usually 30 days)
         initial_waiting = policy.get("waiting_periods", {}).get("initial_waiting", 30)
         if days_since_joining < initial_waiting:

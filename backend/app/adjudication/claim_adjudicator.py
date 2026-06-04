@@ -136,9 +136,9 @@ def run_local_adjudication_flow(claim: Dict[str, Any], policy: Dict[str, Any], y
 
     # 5. Policy exclusions (Dynamic evaluation from policy_terms.json)
     prescription = claim.get("documents", {}).get("prescription", {})
-    diagnosis_text = prescription.get("diagnosis", "").lower()
-    treatment_text = prescription.get("treatment", "").lower()
-    procedures_text = " ".join(prescription.get("procedures", [])).lower()
+    diagnosis_text = (prescription.get("diagnosis") or "").lower()
+    treatment_text = (prescription.get("treatment") or "").lower()
+    procedures_text = " ".join(prescription.get("procedures") or []).lower()
     combined_clinical_text = f"{diagnosis_text} {treatment_text} {procedures_text}"
 
     bill = claim.get("documents", {}).get("bill", {})
@@ -192,10 +192,10 @@ def run_local_adjudication_flow(claim: Dict[str, Any], policy: Dict[str, Any], y
     preauth_test_name = ""
     
     # Check if bill contains high-value scans that require pre-auth in the policy
-    if bill.get("mri_scan", 0) > 0 and any("MRI" in t and "pre-auth" in t.lower() for t in covered_tests):
+    if (bill.get("mri_scan") or 0) > 0 and any("MRI" in t and "pre-auth" in t.lower() for t in covered_tests):
         needs_preauth = True
         preauth_test_name = "MRI scan"
-    elif bill.get("ct_scan", 0) > 0 and any("CT" in t and "pre-auth" in t.lower() for t in covered_tests):
+    elif (bill.get("ct_scan") or 0) > 0 and any("CT" in t and "pre-auth" in t.lower() for t in covered_tests):
         needs_preauth = True
         preauth_test_name = "CT scan"
         
@@ -388,6 +388,8 @@ def process_and_adjudicate_claim(claim_req: ClaimSubmitRequest, policy: dict, db
         claim_amount = float(claim_req.claim_amount)
     else:
         claim_amount = float(extracted.get("claim_amount") or 0.0)
+        
+    extracted["claim_amount"] = claim_amount
 
     # Calculate YTD Approved amount for the member in the current treatment date's year
     treatment_year = datetime.now().year
@@ -411,12 +413,34 @@ def process_and_adjudicate_claim(claim_req: ClaimSubmitRequest, policy: dict, db
         except Exception:
             pass
 
+    # Construct full claim payload to be used by either AI or Local engines
+    claim_payload = {
+        "claim_amount": claim_amount,
+        "member_name": member_name,
+        "member_id": claim_req.member_id,
+        "member_join_date": claim_req.member_join_date,
+        "treatment_date": claim_req.treatment_date,
+        "hospital": claim_req.hospital,
+        "cashless_request": claim_req.cashless_request,
+        "previous_claims_same_day": claim_req.previous_claims_same_day,
+        "documents": {
+            "prescription": {
+                "doctor_name": extracted.get("doctor_name", ""),
+                "doctor_reg": extracted.get("doctor_registration_number", ""),
+                "diagnosis": extracted.get("diagnosis", ""),
+                "medicines_prescribed": extracted.get("medicines"),
+                "procedures": extracted.get("procedures")
+            },
+            "bill": extracted.get("bill_breakdown", {})
+        }
+    }
+
     decision_data = {}
 
     # 2. Decision Routing
     if claim_req.adjudication_mode == "ai":
         rules_text = load_adjudication_rules_text()
-        ds_verdict = run_adjudication_pipeline(extracted, policy, rules_text)
+        ds_verdict = run_adjudication_pipeline(claim_payload, policy, rules_text)
         
         decision_data = {
             "decision": ds_verdict.get("decision", "MANUAL_REVIEW"),
@@ -444,24 +468,6 @@ def process_and_adjudicate_claim(claim_req: ClaimSubmitRequest, policy: dict, db
             decision_data["notes"] = decision_data.get("notes", "") + f" | Cap applied: exceeds remaining annual policy limit of ₹{remaining_limit}."
     else:
         # Local Rules engine
-        claim_payload = {
-            "claim_amount": claim_amount,
-            "member_name": member_name,
-            "member_id": claim_req.member_id,
-            "hospital": claim_req.hospital,
-            "cashless_request": claim_req.cashless_request,
-            "previous_claims_same_day": claim_req.previous_claims_same_day,
-            "documents": {
-                "prescription": {
-                    "doctor_name": extracted.get("doctor_name", ""),
-                    "doctor_reg": extracted.get("doctor_registration_number", ""),
-                    "diagnosis": extracted.get("diagnosis", ""),
-                    "medicines_prescribed": extracted.get("medicines"),
-                    "procedures": extracted.get("procedures")
-                },
-                "bill": extracted.get("bill_breakdown", {})
-            }
-        }
         outcome = run_local_adjudication_flow(claim_payload, policy, ytd_approved_sum)
         
         decision_data = {

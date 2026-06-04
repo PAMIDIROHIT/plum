@@ -14,31 +14,43 @@ def extract_text_from_image_bytes(image_bytes: bytes, filename: str = "") -> str
     
     Strategy (in order of preference):
     1. pytesseract (if installed) — offline OCR
-    2. Base64 encode and pass to Gemini Vision via API
-    3. Graceful fallback with an error message for the LLM to handle
+    2. easyocr (if installed) — offline OCR fallback
+    3. Base64 encode and pass to Gemini Vision via API
+    4. Graceful fallback with an error message for the LLM to handle
     """
     # Strategy 1: Try pytesseract
     try:
         import pytesseract
         from PIL import Image
         img = Image.open(io.BytesIO(image_bytes))
-        # Pre-process: convert to grayscale for better OCR accuracy
         img_gray = img.convert("L")
         text = pytesseract.image_to_string(img_gray, lang="eng")
         if text.strip():
             return text.strip()
-    except ImportError:
-        pass  # pytesseract not installed — fall through
     except Exception as e:
-        print(f"pytesseract failed for {filename}: {e}")
+        pass
 
-    # Strategy 2: Return base64 placeholder that Gemini Vision can process
-    # The extraction pipeline will handle this via the LLM image API call
+    # Strategy 2: Try EasyOCR
+    try:
+        import easyocr
+        import numpy as np
+        from PIL import Image
+        img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+        img_np = np.array(img)
+        # Suppress verbose output by disabling logging or wrapping
+        reader = easyocr.Reader(['en'], gpu=False, verbose=False)
+        result = reader.readtext(img_np, detail=0)
+        text = "\\n".join(result)
+        if text.strip():
+            return text.strip()
+    except Exception as e:
+        print(f"EasyOCR failed for {filename}: {e}")
+
+    # Strategy 3: Return base64 placeholder that Gemini Vision can process
     try:
         b64 = base64.b64encode(image_bytes).decode("utf-8")
         ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else "jpg"
         mime = "image/jpeg" if ext in ("jpg", "jpeg") else f"image/{ext}"
-        # Return a structured placeholder that the caller can detect and pass to vision API
         return f"[IMAGE_BASE64:{mime}:{b64[:100]}...]"
     except Exception:
         pass

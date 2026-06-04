@@ -58,6 +58,8 @@ def submit_claim(claim_req: ClaimSubmitRequest, db: Any = Depends(get_db)):
         result = process_and_adjudicate_claim(claim_req, policy, db)
         return result
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/history")

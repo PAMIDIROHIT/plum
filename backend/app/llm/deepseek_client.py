@@ -62,8 +62,7 @@ async def call_deepseek_api_async(system_prompt: str, user_content: str) -> str:
     Returns cleaned raw string (JSON will be parsed by caller).
     """
     models = [
-        "deepseek/deepseek-r1:free", 
-        "deepseek/deepseek-r1"
+        "meta-llama/llama-3.3-70b-instruct:free"
     ]
 
     def _payload(model: str):
@@ -87,9 +86,15 @@ async def call_deepseek_api_async(system_prompt: str, user_content: str) -> str:
                 if resp.status_code == 200:
                     content = resp.json()["choices"][0]["message"]["content"]
                     return _strip_thinking(content)
-            except httpx.TimeoutException:
+                else:
+                    print(f"DeepSeek/LLM Error for {model}: {resp.status_code} - {resp.text}")
+            except httpx.TimeoutException as e:
+                print(f"DeepSeek/LLM Timeout for {model}: {e}")
                 continue
-            except Exception:
+            except Exception as e:
+                print(f"DeepSeek/LLM Error for {model}: {e}")
+                if 'resp' in locals() and hasattr(resp, 'text'):
+                    print(f"Response: {resp.text}")
                 continue
 
     raise Exception("All DeepSeek model variants failed via OpenRouter.")

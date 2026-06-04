@@ -427,7 +427,7 @@ export default function UploadPage() {
   // Form state
   const [memberId, setMemberId]             = useState('EMP101');
   const [memberName, setMemberName]         = useState('John Doe');
-  const [memberJoinDate, setMemberJoinDate] = useState(daysAgo(200));
+  const [memberJoinDate, setMemberJoinDate] = useState('2024-01-01');
   const [treatmentDate, setTreatmentDate]   = useState(today());
   const [claimAmount, setClaimAmount]       = useState(1500);
   const [hospital, setHospital]             = useState('');
@@ -448,11 +448,11 @@ export default function UploadPage() {
   const loadTemplate = (type) => {
     if (type === 'viral') {
       setMemberName('Rajesh Kumar'); setMemberId('EMP001');
-      setTreatmentDate(today()); setMemberJoinDate(daysAgo(200)); setClaimAmount(1500);
+      setTreatmentDate(today()); setMemberJoinDate('2024-01-01'); setClaimAmount(1500);
       setPrescText(TMPL_PRESC_VIRAL()); setBillText(TMPL_BILL_VIRAL());
     } else {
       setMemberName('Priya Singh'); setMemberId('EMP002');
-      setTreatmentDate(today()); setMemberJoinDate(daysAgo(200)); setClaimAmount(12000);
+      setTreatmentDate(today()); setMemberJoinDate('2024-01-01'); setClaimAmount(12000);
       setPrescText(TMPL_PRESC_DENTAL()); setBillText(TMPL_BILL_DENTAL());
     }
     setResult(null); setError(null); setPipelineStep(null);

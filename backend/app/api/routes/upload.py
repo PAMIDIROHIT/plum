@@ -104,6 +104,40 @@ async def upload_document(file: UploadFile = File(...)):
         gemini_error = str(e)
         print(f"Gemini Vision extraction failed for {filename}: {e}")
 
+    def format_gemini_extraction_as_text(data: dict) -> str:
+        lines = []
+        if data.get("patient_name"):
+            lines.append(f"Patient Name: {data['patient_name']}")
+        if data.get("patient_age"):
+            lines.append(f"Age: {data['patient_age']}")
+        if data.get("doctor_name"):
+            lines.append(f"Doctor Name: {data['doctor_name']}")
+        if data.get("doctor_registration_number"):
+            lines.append(f"Reg. No: {data['doctor_registration_number']}")
+        if data.get("hospital_or_clinic"):
+            lines.append(f"Hospital/Clinic: {data['hospital_or_clinic']}")
+        if data.get("treatment_date"):
+            lines.append(f"Date: {data['treatment_date']}")
+        if data.get("diagnosis"):
+            lines.append(f"Diagnosis: {data['diagnosis']}")
+        if data.get("medicines"):
+            lines.append(f"Rx (Medicines): {', '.join(data['medicines'])}")
+        if data.get("tests_prescribed"):
+            lines.append(f"Investigations Advised: {', '.join(data['tests_prescribed'])}")
+        if data.get("procedures"):
+            lines.append(f"Procedures: {', '.join(data['procedures'])}")
+        if data.get("bill_breakdown"):
+            lines.append("PARTICULARS AMOUNT")
+            for k, v in data["bill_breakdown"].items():
+                lines.append(f"{k}: ₹ {v}")
+        if data.get("claim_amount"):
+            lines.append(f"TOTAL: ₹ {data['claim_amount']}")
+        return "\n".join(lines)
+
+    # If local_text is placeholder or empty, and gemini succeeded, format as text
+    if ("IMAGE_BASE64" in local_text or not local_text.strip()) and gemini_extraction:
+        local_text = format_gemini_extraction_as_text(gemini_extraction)
+
     # ── Step D: Auto-classify document type ──────────────────────────────────
     text_lower = local_text.lower()
     if gemini_extraction and gemini_extraction.get("document_types"):
@@ -127,10 +161,10 @@ async def upload_document(file: UploadFile = File(...)):
         "gemini_extraction": gemini_extraction,      # Structured AI extraction result
         "gemini_error": gemini_error,                # Non-null only if Gemini failed
         "quality_assessment": quality,
-        "status": "extracted" if quality["is_legible"] else "low_quality",
+        "status": "extracted" if (quality["is_legible"] or gemini_extraction) else "low_quality",
         "warning": (
             "Document quality is low. Manual review recommended."
-            if not quality["is_legible"] else None
+            if not (quality["is_legible"] or gemini_extraction) else None
         ),
     }
 
