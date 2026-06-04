@@ -40,7 +40,7 @@ def extract_text_from_image_bytes(image_bytes: bytes, filename: str = "") -> str
         # Suppress verbose output by disabling logging or wrapping
         reader = easyocr.Reader(['en'], gpu=False, verbose=False)
         result = reader.readtext(img_np, detail=0)
-        text = "\\n".join(result)
+        text = "\n".join(result)
         if text.strip():
             return text.strip()
     except Exception as e:
