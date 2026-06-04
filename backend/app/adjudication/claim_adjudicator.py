@@ -29,6 +29,12 @@ def load_adjudication_rules_text() -> str:
     """
     Loads raw adjudication rules markdown text.
     """
+    # Check in backend root (Render deployment)
+    cwd_path = os.path.join(os.getcwd(), "adjudication_rules.md")
+    if os.path.exists(cwd_path):
+        with open(cwd_path, "r") as f:
+            return f.read()
+
     public_path = os.path.join(
         os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
         "public",
