@@ -444,6 +444,11 @@ export default function UploadPage() {
   const [result, setResult]               = useState(null);
   const [error, setError]                 = useState(null);
 
+  // Single Source of Truth: store upload-time Gemini extraction to reuse on submit
+  // This prevents re-extraction which can mutate doctor_reg and other fields.
+  const [prescGeminiExtraction, setPrescGeminiExtraction] = useState(null);
+  const [billGeminiExtraction, setBillGeminiExtraction]   = useState(null);
+
   // ─── Template loader ───────────────────────────────────────────────────────
   const loadTemplate = (type) => {
     if (type === 'viral') {
@@ -461,6 +466,7 @@ export default function UploadPage() {
   // ─── File upload handlers ──────────────────────────────────────────────────
   const handlePrescExtracted = useCallback((text, geminiData) => {
     setPrescText(text);
+    setPrescGeminiExtraction(geminiData || null);  // Store for single-source passthrough
     // Auto-fill patient name from Gemini extraction
     if (geminiData?.patient_name && geminiData.patient_name !== 'Unknown') {
       setMemberName(geminiData.patient_name);
@@ -470,6 +476,7 @@ export default function UploadPage() {
 
   const handleBillExtracted = useCallback((text, geminiData) => {
     setBillText(text);
+    setBillGeminiExtraction(geminiData || null);   // Store for single-source passthrough
     // Auto-fill claim amount from Gemini invoice extraction
     if (geminiData?.claim_amount && geminiData.claim_amount > 0) {
       setClaimAmount(geminiData.claim_amount);
@@ -496,7 +503,15 @@ export default function UploadPage() {
       setPipelineStep('upload');
       await new Promise(r => setTimeout(r, 400));
 
-      setPipelineStep('gemini');
+      // Build merged prior extraction — prescription fields take priority, bill provides bill_breakdown
+      const priorExtraction = (prescGeminiExtraction || billGeminiExtraction)
+        ? {
+            ...(prescGeminiExtraction || {}),
+            bill_breakdown: billGeminiExtraction?.bill_breakdown || prescGeminiExtraction?.bill_breakdown || {},
+            claim_amount: billGeminiExtraction?.claim_amount || prescGeminiExtraction?.claim_amount || parseFloat(claimAmount) || 0,
+          }
+        : null;
+
       const payload = {
         member_id: memberId,
         member_name: memberName,
@@ -509,6 +524,8 @@ export default function UploadPage() {
         prescription_text: prescText,
         bill_text: billText,
         adjudication_mode: adjMode,
+        // Pass upload-time extraction to prevent re-extraction data mutation
+        prior_gemini_extraction: priorExtraction,
       };
 
       // Show rule engine step briefly

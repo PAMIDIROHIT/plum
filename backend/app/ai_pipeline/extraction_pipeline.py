@@ -12,10 +12,11 @@ from ..document_processing.document_classifier import parse_prescription_regex, 
 
 def _extract_patient_name(text: str) -> Optional[str]:
     """Extract patient name from raw document text."""
+    # Priority 1: labeled field — handles both Title Case and UPPERCASE
     match = re.search(r"Patient(?:\s+Name)?[:\s]+([A-Za-z][A-Za-z\s]{2,40})", text, re.IGNORECASE)
     if match:
-        name = match.group(1).strip()
-        for noise in ["Age", "Sex", "DOB", "Date", "Diagnosis", "Rx"]:
+        name = match.group(1).strip().title()  # normalize ROHIT PAMIDI -> Rohit Pamidi
+        for noise in ["Age", "Sex", "Dob", "Date", "Diagnosis", "Rx", "Address", "Gender"]:
             if noise.lower() in name.lower():
                 name = name[:name.lower().index(noise.lower())].strip()
         return name if len(name) > 2 else None
@@ -24,8 +25,22 @@ def _extract_patient_name(text: str) -> Optional[str]:
 
 def _extract_hospital(text: str) -> Optional[str]:
     """Extract hospital or clinic name from raw document text."""
+    # Priority 1: Known major network hospitals (exact name at document header)
+    known = [
+        "Apollo Hospitals", "Apollo Hospital", "Fortis Healthcare", "Max Healthcare",
+        "Manipal Hospitals", "Narayana Health", "AIIMS", "Medanta",
+    ]
+    text_clean = ' '.join(text.split())  # normalize whitespace
+    for k in known:
+        if k.lower() in text_clean.lower():
+            return k
+    # Priority 2: Any labeled clinic/hospital field
+    label_match = re.search(r"Hospital[/\s]*Clinic[:\s]+([A-Za-z][A-Za-z\s,\.]{3,50})", text, re.IGNORECASE)
+    if label_match:
+        return label_match.group(1).strip()
+    # Priority 3: Regex pattern (existing fallback)
     match = re.search(
-        r"([A-Za-z][A-Za-z\s]{2,50}(?:Clinic|Hospital|Healthcare|Care Centre|Medical Center|Pharmacy|Care))",
+        r"([A-Za-z][A-Za-z\s]{2,40}(?:Clinic|Hospital|Healthcare|Care Centre|Medical Center|Pharmacy))",
         text, re.IGNORECASE
     )
     return match.group(1).strip() if match else None
@@ -34,21 +49,23 @@ def _extract_hospital(text: str) -> Optional[str]:
 def _extract_treatment_date(text: str) -> Optional[str]:
     """Extract and normalize treatment/consultation date from document."""
     patterns = [
-        r"Date[:\s]+(\d{4}-\d{2}-\d{2})",
-        r"Date[:\s]+(\d{2}/\d{2}/\d{4})",
-        r"Date[:\s]+(\d{2}-\d{2}-\d{4})",
-        r"Date[:\s]+(\d{2}\.\d{2}\.\d{4})",
-        r"(\d{4}-\d{2}-\d{2})",
+        # Labeled date fields
+        (r"(?:Bill\s+Date|Date|Consultation\s+Date)[:\s]+(\d{4}-\d{2}-\d{2})", "%Y-%m-%d"),
+        (r"(?:Bill\s+Date|Date|Consultation\s+Date)[:\s]+(\d{2}/\d{2}/\d{4})", "%d/%m/%Y"),
+        (r"(?:Bill\s+Date|Date|Consultation\s+Date)[:\s]+(\d{2}-\d{2}-\d{4})", "%d-%m-%Y"),
+        (r"(?:Bill\s+Date|Date|Consultation\s+Date)[:\s]+(\d{2}\.\d{2}\.\d{4})", "%d.%m.%Y"),
+        # Bare date fallbacks
+        (r"\b(\d{4}-\d{2}-\d{2})\b", "%Y-%m-%d"),
+        (r"\b(\d{2}/\d{2}/\d{4})\b", "%d/%m/%Y"),
     ]
-    for pattern in patterns:
+    for pattern, fmt in patterns:
         match = re.search(pattern, text, re.IGNORECASE)
         if match:
             raw = match.group(1)
-            for fmt in ["%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y", "%d.%m.%Y"]:
-                try:
-                    return datetime.strptime(raw, fmt).strftime("%Y-%m-%d")
-                except ValueError:
-                    continue
+            try:
+                return datetime.strptime(raw, fmt).strftime("%Y-%m-%d")
+            except ValueError:
+                continue
     return None
 
 

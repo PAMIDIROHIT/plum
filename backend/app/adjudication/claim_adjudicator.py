@@ -380,8 +380,16 @@ def process_and_adjudicate_claim(claim_req: ClaimSubmitRequest, policy: dict, db
 === BILL/INVOICE DOCUMENT ===
 {claim_req.bill_text}
 """
-    # 1. OCR Extraction (Gemini Vision or text mode)
-    extracted = run_extraction_pipeline(combined_docs)
+    # 1. OCR Extraction — use prior upload-time extraction if provided (Single Source of Truth).
+    # This prevents field mutation: doctor_reg, diagnosis, medicines remain identical
+    # to what was shown in the upload preview.
+    if claim_req.prior_gemini_extraction:
+        extracted = claim_req.prior_gemini_extraction
+        print(f"[Adjudicator] Reusing upload-time Gemini extraction (skipping re-extraction).")
+    else:
+        extracted = run_extraction_pipeline(combined_docs)
+        print(f"[Adjudicator] Fresh extraction run (no prior extraction provided).")
+
     member_name = claim_req.member_name or extracted.get("patient_name") or "John Doe"
     # Fix: Python `or` treats 0.0 as falsy — use explicit check so user-provided amount is always respected
     if claim_req.claim_amount is not None and claim_req.claim_amount > 0:
