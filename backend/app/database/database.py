@@ -3,6 +3,7 @@
 # =====================================================================
 
 import os
+import certifi
 from pymongo import MongoClient
 from dotenv import load_dotenv
 
@@ -14,8 +15,8 @@ load_dotenv()
 ATLAS_URI = "mongodb+srv://rohithtnsp_db_user:7286027547@cluster0.xqz3vjx.mongodb.net/?appName=Cluster0"
 MONGODB_URL = os.getenv("MONGODB_URL") or os.getenv("MONGO_URI") or ATLAS_URI
 
-# Initialize MongoDB client
-client = MongoClient(MONGODB_URL)
+# Initialize MongoDB client with explicit TLS certificates (fixes Render TLSV1_ALERT_INTERNAL_ERROR)
+client = MongoClient(MONGODB_URL, tlsCAFile=certifi.where())
 
 # Get reference to the Plum database
 db = client.get_database("plum_db") if "mongodb+srv" in MONGODB_URL else client.plum_db
