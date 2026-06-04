@@ -61,7 +61,10 @@ async def call_deepseek_api_async(system_prompt: str, user_content: str) -> str:
     Tries free tier first, falls back to paid model on queue overload.
     Returns cleaned raw string (JSON will be parsed by caller).
     """
-    models = ["deepseek/deepseek-r1:free"]
+    models = [
+        "deepseek/deepseek-r1:free", 
+        "deepseek/deepseek-r1"
+    ]
 
     def _payload(model: str):
         return {

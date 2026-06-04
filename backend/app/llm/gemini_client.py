@@ -60,7 +60,7 @@ async def call_gemini_api_async(
     }
 
     # gemini-1.5-flash is deprecated (404). Try 2.5-flash first.
-    models = ["gemini-2.5-flash", "gemini-1.5-flash"]
+    models = ["gemini-2.5-flash", "gemini-1.5-flash-latest"]
 
     async with httpx.AsyncClient(timeout=30.0) as client:
         for model in models:
