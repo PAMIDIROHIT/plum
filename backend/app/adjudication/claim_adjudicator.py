@@ -6,10 +6,8 @@ import json
 import os
 import random
 from datetime import datetime
-from sqlalchemy.orm import Session
 from typing import Dict, Any, List
 
-from ..database.models.claim import ClaimModel
 from ..schemas.adjudication_schema import ClaimSubmitRequest
 
 # Rule sub-engines
@@ -371,7 +369,7 @@ def run_local_adjudication_flow(claim: Dict[str, Any], policy: Dict[str, Any], y
         "notes": f"Claim {decision.lower()} successfully."
     }
 
-def process_and_adjudicate_claim(claim_req: ClaimSubmitRequest, policy: dict, db: Session) -> dict:
+def process_and_adjudicate_claim(claim_req: ClaimSubmitRequest, policy: dict, db: Any) -> dict:
     """
     Unified Orchestrator: OCR extraction -> DeepSeek R1 adjudication -> SQLite persistence
     """
@@ -399,17 +397,17 @@ def process_and_adjudicate_claim(claim_req: ClaimSubmitRequest, policy: dict, db
         except Exception:
             pass
 
-    prior_claims = db.query(ClaimModel).filter(
-        ClaimModel.member_id == claim_req.member_id,
-        ClaimModel.decision.in_(["APPROVED", "PARTIAL"])
-    ).all()
+    prior_claims = db.claims.find({
+        "member_id": claim_req.member_id,
+        "decision": {"$in": ["APPROVED", "PARTIAL"]}
+    })
 
     ytd_approved_sum = 0.0
     for pc in prior_claims:
         try:
-            pc_year = datetime.strptime(pc.treatment_date, "%Y-%m-%d").year
+            pc_year = datetime.strptime(pc.get("treatment_date", ""), "%Y-%m-%d").year
             if pc_year == treatment_year:
-                ytd_approved_sum += pc.approved_amount
+                ytd_approved_sum += pc.get("approved_amount", 0.0)
         except Exception:
             pass
 
@@ -498,28 +496,28 @@ def process_and_adjudicate_claim(claim_req: ClaimSubmitRequest, policy: dict, db
     meta_with_workflow = {**decision_data.get("meta", {}), "workflow": workflow_ctx}
 
     # 5. DB Persistence
-    db_claim = ClaimModel(
-        claim_id=decision_data.get("meta", {}).get("claim_id") or (
+    claim_id = decision_data.get("meta", {}).get("claim_id") or (
             f"CLM_{claim_req.member_id}_{claim_req.treatment_date}_{datetime.now().strftime('%H%M%S%f')}"
-        ),
+        )
+        
+    db_claim = {
+        "claim_id": claim_id,
+        "member_id": claim_req.member_id,
+        "member_name": member_name,
+        "treatment_date": claim_req.treatment_date,
+        "claim_amount": claim_amount,
+        "approved_amount": decision_data.get("approved_amount", 0.0),
+        "decision": decision_data.get("decision", "MANUAL_REVIEW"),
+        "confidence_score": final_confidence,
+        "rejection_reasons": json.dumps(decision_data.get("rejection_reasons", [])),
+        "notes": decision_data.get("notes", ""),
+        "next_steps": decision_data.get("next_steps", ""),
+        "raw_input": json.dumps(extracted),
+        "adjudication_meta": json.dumps(meta_with_workflow),
+        "created_at": datetime.now().isoformat()
+    }
 
-        member_id=claim_req.member_id,
-        member_name=member_name,
-        treatment_date=claim_req.treatment_date,
-        claim_amount=claim_amount,
-        approved_amount=decision_data.get("approved_amount", 0.0),
-        decision=decision_data.get("decision", "MANUAL_REVIEW"),
-        confidence_score=final_confidence,
-        rejection_reasons=json.dumps(decision_data.get("rejection_reasons", [])),
-        notes=decision_data.get("notes", ""),
-        next_steps=decision_data.get("next_steps", ""),
-        raw_input=json.dumps(extracted),
-        adjudication_meta=json.dumps(meta_with_workflow)
-    )
-
-    db.add(db_claim)
-    db.commit()
-    db.refresh(db_claim)
+    db.claims.insert_one(db_claim)
 
 
     # Build extraction_data for frontend display (Gemini-extracted fields)
@@ -543,14 +541,14 @@ def process_and_adjudicate_claim(claim_req: ClaimSubmitRequest, policy: dict, db
     }
 
     return {
-        "claim_id": db_claim.claim_id,
-        "decision": db_claim.decision,
-        "approved_amount": db_claim.approved_amount,
+        "claim_id": db_claim["claim_id"],
+        "decision": db_claim["decision"],
+        "approved_amount": db_claim["approved_amount"],
         "claim_amount": claim_amount,
-        "rejection_reasons": json.loads(db_claim.rejection_reasons),
+        "rejection_reasons": json.loads(db_claim["rejection_reasons"]),
         "confidence_score": final_confidence,
-        "notes": db_claim.notes,
-        "next_steps": db_claim.next_steps,
+        "notes": db_claim["notes"],
+        "next_steps": db_claim["next_steps"],
         "workflow_state": workflow_ctx.get("workflow_state"),
         "workflow_description": workflow_ctx.get("state_description"),
         "copay_applied": decision_data.get("meta", {}).get("copay_applied") or decision_data.get("meta", {}).get("deductions", {}).get("copay"),

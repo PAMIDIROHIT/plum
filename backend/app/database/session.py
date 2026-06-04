@@ -3,15 +3,11 @@
 # =====================================================================
 
 from typing import Generator
-from .database import SessionLocal
+from .database import db
 
 def get_db() -> Generator:
     """
     Database dependency yield provider.
-    Yields active database sessions to API routes and closes them after request lifecycles.
+    Yields the active MongoDB database reference to API routes.
     """
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
+    yield db

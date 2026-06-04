@@ -3,23 +3,17 @@
 # =====================================================================
 
 import os
-from sqlalchemy import create_engine
-from sqlalchemy.orm import declarative_base, sessionmaker
+from pymongo import MongoClient
 from dotenv import load_dotenv
 
 # Load database configuration from environment
 load_dotenv()
 
-# Default local SQLite database file path
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./claims.db")
+# Default MongoDB URL
+MONGODB_URL = os.getenv("MONGODB_URL", "mongodb://localhost:27017")
 
-# check_same_thread=False allows multi-threaded concurrency for sqlite
-engine = create_engine(
-    DATABASE_URL, connect_args={"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
-)
+# Initialize MongoDB client
+client = MongoClient(MONGODB_URL)
 
-# Local database session factory
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-
-# Declarative base class for SQL models mapping
-Base = declarative_base()
+# Get reference to the Plum database
+db = client.get_database("plum_db") if "mongodb+srv" in MONGODB_URL else client.plum_db

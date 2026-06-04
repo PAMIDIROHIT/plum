@@ -5,12 +5,10 @@
 import json
 import os
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
 from typing import List, Dict, Any
 from pydantic import BaseModel
 
 from ...database.session import get_db
-from ...database.models.claim import ClaimModel
 from ...schemas.adjudication_schema import ClaimSubmitRequest
 from ...adjudication.claim_adjudicator import process_and_adjudicate_claim, run_local_adjudication_flow
 
@@ -50,7 +48,7 @@ def load_policy_config() -> dict:
     raise Exception("Policy terms configuration not found.")
 
 @router.post("/submit")
-def submit_claim(claim_req: ClaimSubmitRequest, db: Session = Depends(get_db)):
+def submit_claim(claim_req: ClaimSubmitRequest, db: Any = Depends(get_db)):
     """
     API endpoint to submit and process a claim document.
     Runs OCR + rules engines and saves results to SQLite DB.
@@ -63,17 +61,17 @@ def submit_claim(claim_req: ClaimSubmitRequest, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/history")
-def get_claims_history(db: Session = Depends(get_db)):
+def get_claims_history(db: Any = Depends(get_db)):
     """
-    Returns list of all claims logs from SQLite DB.
+    Returns list of all claims logs from MongoDB.
     """
-    claims = db.query(ClaimModel).order_by(ClaimModel.id.desc()).all()
+    claims = db.claims.find().sort("created_at", -1)
     history = []
     
     for claim in claims:
         # Load metadata and JSON columns
-        meta = json.loads(claim.adjudication_meta) if claim.adjudication_meta else {}
-        raw_input = json.loads(claim.raw_input) if claim.raw_input else {}
+        meta = json.loads(claim.get("adjudication_meta", "{}")) if isinstance(claim.get("adjudication_meta"), str) else claim.get("adjudication_meta", {})
+        raw_input = json.loads(claim.get("raw_input", "{}")) if isinstance(claim.get("raw_input"), str) else claim.get("raw_input", {})
         
         # Extract Gemini-extracted fields stored in raw_input
         extraction_data = {
@@ -93,17 +91,21 @@ def get_claims_history(db: Session = Depends(get_db)):
             "possible_fraud_flags": raw_input.get("possible_fraud_flags"),
         }
         
+        rejection_reasons = claim.get("rejection_reasons", [])
+        if isinstance(rejection_reasons, str):
+            rejection_reasons = json.loads(rejection_reasons)
+            
         history.append({
-            "claim_id": claim.claim_id,
-            "member_id": claim.member_id,
-            "member_name": claim.member_name,
-            "treatment_date": claim.treatment_date,
-            "claim_amount": claim.claim_amount,
-            "approved_amount": claim.approved_amount,
-            "decision": claim.decision,
-            "rejection_reasons": json.loads(claim.rejection_reasons) if claim.rejection_reasons else [],
-            "notes": claim.notes,
-            "next_steps": claim.next_steps,
+            "claim_id": claim.get("claim_id"),
+            "member_id": claim.get("member_id"),
+            "member_name": claim.get("member_name"),
+            "treatment_date": claim.get("treatment_date"),
+            "claim_amount": claim.get("claim_amount"),
+            "approved_amount": claim.get("approved_amount"),
+            "decision": claim.get("decision"),
+            "rejection_reasons": rejection_reasons,
+            "notes": claim.get("notes"),
+            "next_steps": claim.get("next_steps"),
             "copay_applied": meta.get("copay_applied") or meta.get("deductions", {}).get("copay"),
             "network_discount_applied": meta.get("network_discount_applied") or meta.get("network_discount"),
             "rejected_items": meta.get("rejected_items"),
@@ -115,10 +117,10 @@ def get_claims_history(db: Session = Depends(get_db)):
             "confidence_score": meta.get("confidence_score", 0.95),
             "extraction_data": extraction_data,
             "input": {
-                "member_id": claim.member_id,
-                "member_name": claim.member_name,
-                "treatment_date": claim.treatment_date,
-                "claim_amount": claim.claim_amount,
+                "member_id": claim.get("member_id"),
+                "member_name": claim.get("member_name"),
+                "treatment_date": claim.get("treatment_date"),
+                "claim_amount": claim.get("claim_amount"),
                 "hospital": raw_input.get("hospital_or_clinic")
             }
         })
@@ -127,32 +129,37 @@ def get_claims_history(db: Session = Depends(get_db)):
 
 
 @router.post("/review")
-def update_manual_review_status(review_req: ManualReviewUpdateRequest, db: Session = Depends(get_db)):
+def update_manual_review_status(review_req: ManualReviewUpdateRequest, db: Any = Depends(get_db)):
     """
     Allows claim managers to override status details for flagged manual review claims.
     """
-    claim = db.query(ClaimModel).filter(ClaimModel.claim_id == review_req.claim_id).first()
+    claim = db.claims.find_one({"claim_id": review_req.claim_id})
     if not claim:
         raise HTTPException(status_code=404, detail="Claim record not found.")
         
-    claim.decision = review_req.decision
-    claim.notes = f"{claim.notes} | Manual Review Note: {review_req.notes}"
-    claim.next_steps = (
+    new_notes = f"{claim.get('notes', '')} | Manual Review Note: {review_req.notes}"
+    new_steps = (
         "Claim manually approved. Reimbursement processing initiated."
         if review_req.decision == "APPROVED"
         else "Claim manually rejected. Notification sent to member."
     )
     
     # Update serialized meta
-    meta = json.loads(claim.adjudication_meta) if claim.adjudication_meta else {}
+    meta = json.loads(claim.get("adjudication_meta", "{}")) if isinstance(claim.get("adjudication_meta"), str) else claim.get("adjudication_meta", {})
     meta["decision"] = review_req.decision
     meta["reasoning"] = meta.get("reasoning", []) + [review_req.notes]
-    claim.adjudication_meta = json.dumps(meta)
     
-    db.commit()
-    db.refresh(claim)
+    db.claims.update_one(
+        {"claim_id": review_req.claim_id},
+        {"$set": {
+            "decision": review_req.decision,
+            "notes": new_notes,
+            "next_steps": new_steps,
+            "adjudication_meta": json.dumps(meta)
+        }}
+    )
     
-    return {"status": "success", "claim_id": claim.claim_id, "decision": claim.decision}
+    return {"status": "success", "claim_id": review_req.claim_id, "decision": review_req.decision}
 
 @router.get("/policy")
 def get_policy():

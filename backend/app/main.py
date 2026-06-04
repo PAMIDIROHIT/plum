@@ -1,11 +1,7 @@
 import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from .database.database import engine, Base
 from .api.routes import health, upload, adjudication
-
-# Auto bootstrap SQLite tables
-Base.metadata.create_all(bind=engine)
 
 app = FastAPI(
     title="Plum Adjudicate API",
