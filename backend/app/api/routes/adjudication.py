@@ -34,10 +34,15 @@ def load_policy_config() -> dict:
         with open(dynamic_path, "r") as f:
             return json.load(f)
 
+    # In Render deployments where rootDir is 'backend', we look directly in the CWD or ROOT_DIR
+    backend_policy_path = os.path.join(ROOT_DIR, "backend", "policy_terms.json")
+    cwd_policy_path = os.path.join(os.getcwd(), "policy_terms.json")
     policy_path = os.path.join(ROOT_DIR, "assignment_docs", "policy_terms.json")
-    if os.path.exists(policy_path):
-        with open(policy_path, "r") as f:
-            return json.load(f)
+    
+    for path in [backend_policy_path, cwd_policy_path, policy_path]:
+        if os.path.exists(path):
+            with open(path, "r") as f:
+                return json.load(f)
             
     # Fallback to copy in public
     public_path = os.path.join(ROOT_DIR, "frontend", "public", "policy_terms.json")
@@ -230,10 +235,15 @@ def get_test_cases():
     GET endpoint to retrieve mock test cases for the frontend test runner.
     """
     try:
+        backend_test_path = os.path.join(ROOT_DIR, "backend", "test_cases.json")
+        cwd_test_path = os.path.join(os.getcwd(), "test_cases.json")
         test_cases_path = os.path.join(ROOT_DIR, "assignment_docs", "test_cases.json")
-        if os.path.exists(test_cases_path):
-            with open(test_cases_path, "r") as f:
-                return json.load(f)
+        
+        for path in [backend_test_path, cwd_test_path, test_cases_path]:
+            if os.path.exists(path):
+                with open(path, "r") as f:
+                    return json.load(f)
+                    
         raise HTTPException(status_code=404, detail="Test cases file not found.")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
