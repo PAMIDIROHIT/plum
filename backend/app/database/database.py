@@ -16,11 +16,14 @@ ATLAS_URI = "mongodb+srv://rohithtnsp_db_user:7286027547@cluster0.xqz3vjx.mongod
 MONGODB_URL = os.getenv("MONGODB_URL") or os.getenv("MONGO_URI") or ATLAS_URI
 
 # Initialize MongoDB client with explicit TLS fallback (forces connection on strict Linux containers)
-client = MongoClient(
-    MONGODB_URL, 
-    tlsCAFile=certifi.where(),
-    tlsAllowInvalidCertificates=True
-)
+if "+srv" in MONGODB_URL or "tls=true" in MONGODB_URL.lower():
+    client = MongoClient(
+        MONGODB_URL, 
+        tlsCAFile=certifi.where(),
+        tlsAllowInvalidCertificates=True
+    )
+else:
+    client = MongoClient(MONGODB_URL)
 
 # Get reference to the Plum database
 db = client.get_database("plum_db") if "mongodb+srv" in MONGODB_URL else client.plum_db

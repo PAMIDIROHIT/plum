@@ -30,21 +30,25 @@ def extract_text_from_image_bytes(image_bytes: bytes, filename: str = "") -> str
     except Exception as e:
         pass
 
-    # Strategy 2: Try EasyOCR
-    try:
-        import easyocr
-        import numpy as np
-        from PIL import Image
-        img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
-        img_np = np.array(img)
-        # Suppress verbose output by disabling logging or wrapping
-        reader = easyocr.Reader(['en'], gpu=False, verbose=False)
-        result = reader.readtext(img_np, detail=0)
-        text = "\n".join(result)
-        if text.strip():
-            return text.strip()
-    except Exception as e:
-        print(f"EasyOCR failed for {filename}: {e}")
+    # Strategy 2: Try EasyOCR (Skip on Render to prevent 512MB RAM OOM crash)
+    import os
+    if not os.getenv("RENDER"):
+        try:
+            import easyocr
+            import numpy as np
+            from PIL import Image
+            img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+            img_np = np.array(img)
+            # Suppress verbose output by disabling logging or wrapping
+            reader = easyocr.Reader(['en'], gpu=False, verbose=False)
+            result = reader.readtext(img_np, detail=0)
+            text = "\n".join(result)
+            if text.strip():
+                return text.strip()
+        except Exception as e:
+            print(f"EasyOCR failed for {filename}: {e}")
+    else:
+        print("Skipping EasyOCR on Render to prevent memory OOM. Falling back to Gemini.")
 
     # Strategy 3: Return base64 placeholder that Gemini Vision can process
     try:
