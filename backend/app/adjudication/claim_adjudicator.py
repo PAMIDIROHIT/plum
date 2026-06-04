@@ -495,11 +495,13 @@ def process_and_adjudicate_claim(claim_req: ClaimSubmitRequest, policy: dict, db
     workflow_ctx = execute_claim_workflow(decision_data)
     meta_with_workflow = {**decision_data.get("meta", {}), "workflow": workflow_ctx}
 
-    # 5. DB Persistence
+    # 5. DB Persistence (Normalized MongoDB Architecture)
     claim_id = decision_data.get("meta", {}).get("claim_id") or (
             f"CLM_{claim_req.member_id}_{claim_req.treatment_date}_{datetime.now().strftime('%H%M%S%f')}"
         )
+    created_at = datetime.now().isoformat()
         
+    # Collection 1: claims
     db_claim = {
         "claim_id": claim_id,
         "member_id": claim_req.member_id,
@@ -509,15 +511,46 @@ def process_and_adjudicate_claim(claim_req: ClaimSubmitRequest, policy: dict, db
         "approved_amount": decision_data.get("approved_amount", 0.0),
         "decision": decision_data.get("decision", "MANUAL_REVIEW"),
         "confidence_score": final_confidence,
-        "rejection_reasons": json.dumps(decision_data.get("rejection_reasons", [])),
+        "created_at": created_at
+    }
+    db.claims.insert_one(db_claim)
+
+    # Collection 2: documents
+    db.documents.insert_one({
+        "claim_id": claim_id,
+        "member_id": claim_req.member_id,
+        "extraction_data": extracted,
+        "created_at": created_at
+    })
+
+    # Collection 3: adjudication_logs
+    db.adjudication_logs.insert_one({
+        "claim_id": claim_id,
+        "rejection_reasons": decision_data.get("rejection_reasons", []),
         "notes": decision_data.get("notes", ""),
         "next_steps": decision_data.get("next_steps", ""),
-        "raw_input": json.dumps(extracted),
-        "adjudication_meta": json.dumps(meta_with_workflow),
-        "created_at": datetime.now().isoformat()
-    }
+        "adjudication_meta": meta_with_workflow,
+        "created_at": created_at
+    })
 
-    db.claims.insert_one(db_claim)
+    # Collection 4: members (Upsert)
+    db.members.update_one(
+        {"member_id": claim_req.member_id},
+        {"$set": {"member_name": member_name, "last_active": created_at}},
+        upsert=True
+    )
+
+    # Collection 5: fraud_flags (Only if anomalies exist or low confidence)
+    fraud_flags = decision_data.get("meta", {}).get("fraud_flags") or decision_data.get("meta", {}).get("flags", [])
+    if fraud_flags or final_confidence < 0.7:
+        db.fraud_flags.insert_one({
+            "claim_id": claim_id,
+            "member_id": claim_req.member_id,
+            "flags": fraud_flags,
+            "confidence_score": final_confidence,
+            "workflow_state": workflow_ctx.get("workflow_state"),
+            "created_at": created_at
+        })
 
 
     # Build extraction_data for frontend display (Gemini-extracted fields)
@@ -545,10 +578,10 @@ def process_and_adjudicate_claim(claim_req: ClaimSubmitRequest, policy: dict, db
         "decision": db_claim["decision"],
         "approved_amount": db_claim["approved_amount"],
         "claim_amount": claim_amount,
-        "rejection_reasons": json.loads(db_claim["rejection_reasons"]),
+        "rejection_reasons": decision_data.get("rejection_reasons", []),
         "confidence_score": final_confidence,
-        "notes": db_claim["notes"],
-        "next_steps": db_claim["next_steps"],
+        "notes": decision_data.get("notes", ""),
+        "next_steps": decision_data.get("next_steps", ""),
         "workflow_state": workflow_ctx.get("workflow_state"),
         "workflow_description": workflow_ctx.get("state_description"),
         "copay_applied": decision_data.get("meta", {}).get("copay_applied") or decision_data.get("meta", {}).get("deductions", {}).get("copay"),

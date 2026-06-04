@@ -51,7 +51,7 @@ def load_policy_config() -> dict:
 def submit_claim(claim_req: ClaimSubmitRequest, db: Any = Depends(get_db)):
     """
     API endpoint to submit and process a claim document.
-    Runs OCR + rules engines and saves results to SQLite DB.
+    Runs OCR + rules engines and saves results to MongoDB.
     """
     try:
         policy = load_policy_config()
@@ -63,15 +63,50 @@ def submit_claim(claim_req: ClaimSubmitRequest, db: Any = Depends(get_db)):
 @router.get("/history")
 def get_claims_history(db: Any = Depends(get_db)):
     """
-    Returns list of all claims logs from MongoDB.
+    Returns list of all claims logs using MongoDB Aggregation across 5 collections.
     """
-    claims = db.claims.find().sort("created_at", -1)
+    pipeline = [
+        {"$sort": {"created_at": -1}},
+        {
+            "$lookup": {
+                "from": "documents",
+                "localField": "claim_id",
+                "foreignField": "claim_id",
+                "as": "docs"
+            }
+        },
+        {
+            "$lookup": {
+                "from": "adjudication_logs",
+                "localField": "claim_id",
+                "foreignField": "claim_id",
+                "as": "logs"
+            }
+        },
+        {
+            "$lookup": {
+                "from": "fraud_flags",
+                "localField": "claim_id",
+                "foreignField": "claim_id",
+                "as": "fraud"
+            }
+        }
+    ]
+    
+    claims = list(db.claims.aggregate(pipeline))
     history = []
     
     for claim in claims:
-        # Load metadata and JSON columns
-        meta = json.loads(claim.get("adjudication_meta", "{}")) if isinstance(claim.get("adjudication_meta"), str) else claim.get("adjudication_meta", {})
-        raw_input = json.loads(claim.get("raw_input", "{}")) if isinstance(claim.get("raw_input"), str) else claim.get("raw_input", {})
+        docs_arr = claim.get("docs", [])
+        raw_input = docs_arr[0].get("extraction_data", {}) if docs_arr else {}
+        
+        logs_arr = claim.get("logs", [])
+        log_data = logs_arr[0] if logs_arr else {}
+        meta = log_data.get("adjudication_meta", {})
+        
+        fraud_arr = claim.get("fraud", [])
+        fraud_data = fraud_arr[0] if fraud_arr else {}
+        fraud_flags = fraud_data.get("flags", [])
         
         # Extract Gemini-extracted fields stored in raw_input
         extraction_data = {
@@ -91,10 +126,8 @@ def get_claims_history(db: Any = Depends(get_db)):
             "possible_fraud_flags": raw_input.get("possible_fraud_flags"),
         }
         
-        rejection_reasons = claim.get("rejection_reasons", [])
-        if isinstance(rejection_reasons, str):
-            rejection_reasons = json.loads(rejection_reasons)
-            
+        rejection_reasons = log_data.get("rejection_reasons", [])
+        
         history.append({
             "claim_id": claim.get("claim_id"),
             "member_id": claim.get("member_id"),
@@ -104,17 +137,17 @@ def get_claims_history(db: Any = Depends(get_db)):
             "approved_amount": claim.get("approved_amount"),
             "decision": claim.get("decision"),
             "rejection_reasons": rejection_reasons,
-            "notes": claim.get("notes"),
-            "next_steps": claim.get("next_steps"),
+            "notes": log_data.get("notes", ""),
+            "next_steps": log_data.get("next_steps", ""),
             "copay_applied": meta.get("copay_applied") or meta.get("deductions", {}).get("copay"),
             "network_discount_applied": meta.get("network_discount_applied") or meta.get("network_discount"),
             "rejected_items": meta.get("rejected_items"),
             "approved_items": meta.get("approved_items"),
             "policy_violations": meta.get("policy_violations"),
-            "flags": meta.get("fraud_flags") or meta.get("flags"),
+            "flags": fraud_flags or meta.get("fraud_flags") or meta.get("flags"),
             "medical_necessity_analysis": meta.get("medical_necessity_analysis"),
             "reasoning": meta.get("reasoning"),
-            "confidence_score": meta.get("confidence_score", 0.95),
+            "confidence_score": claim.get("confidence_score", 0.95),
             "extraction_data": extraction_data,
             "input": {
                 "member_id": claim.get("member_id"),
