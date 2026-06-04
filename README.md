@@ -5,6 +5,8 @@ An intelligent, production-grade AI automation pipeline designed to process, ext
 Built for the **Plum AI Automation Engineer Intern** assignment.
 
 ---
+# video link
+https://drive.google.com/file/d/1wK2hoiYClAAeyHsy-tXdFrTqclxUGwdO/view?usp=sharing
 
 ## 🎯 Executive Summary
 This application transforms the highly manual, error-prone process of health insurance claim adjudication into a deterministic, AI-orchestrated pipeline. By combining the visual extraction power of **Gemini Vision** with the strict, step-by-step logic and reasoning of **DeepSeek R1**, the system achieves human-level auditing with complete mathematical enforcement of policy limits.
